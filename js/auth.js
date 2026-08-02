@@ -128,34 +128,7 @@ if (logoutWaitingBtn) {
     });
 }
 
-// Quick Demo Login Handlers
-window.quickLoginAdmin = function () {
-    initDefaultDB();
-    const users = getUsers();
-    const admin = users.find(u => u.role === 'admin') || users[0];
-    localStorage.setItem('current_user', JSON.stringify(admin));
-    window.location.href = 'admin.html';
-};
-
-window.quickLoginFarmer = function () {
-    initDefaultDB();
-    const users = getUsers();
-    let farmer = users.find(u => u.role === 'user' && u.is_approved);
-    if (!farmer) {
-        farmer = {
-            id: 'farmer_1',
-            name: 'สมชาย เกษตรก้าวหน้า',
-            phone: '0899999999',
-            password: 'password123',
-            role: 'user',
-            is_approved: true
-        };
-        users.push(farmer);
-        saveUsers(users);
-    }
-    localStorage.setItem('current_user', JSON.stringify(farmer));
-    window.location.href = 'dashboard.html';
-};
+// Quick Demo Login Handlers removed
 
 // Registration Logic
 if (registerForm) {
@@ -212,7 +185,7 @@ if (loginForm) {
         const user = users.find(u => u.phone === phone && u.password === password);
 
         if (!user) {
-            alert('เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง (ทดสอบ Admin: 0812345678 / password123, เกษตรกร: 0899999999 / password123)');
+            alert('เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง');
             return;
         }
 

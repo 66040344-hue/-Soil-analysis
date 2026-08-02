@@ -76,6 +76,99 @@ const DB_STANDARDS = 'soil_app_standards';
 const DB_ADVICES = 'soil_app_advices';
 
 let currentAnalysisResult = null;
+let currentCropId = 'general';
+
+let isCompareMode = false;
+let selectedCompareIds = [];
+
+window.toggleCompareMode = function () {
+    isCompareMode = !isCompareMode;
+    selectedCompareIds = [];
+
+    const thCompare = document.getElementById('th-compare-checkbox');
+    const compareActions = document.getElementById('compare-actions');
+    const btnToggle = document.getElementById('btn-toggle-compare');
+    const checkboxes = document.querySelectorAll('.td-compare-checkbox');
+    const compareInputs = document.querySelectorAll('.compare-checkbox');
+
+    if (isCompareMode) {
+        if (thCompare) thCompare.classList.remove('hidden');
+        if (compareActions) compareActions.classList.remove('hidden');
+        if (btnToggle) {
+            btnToggle.innerHTML = '<i class="fas fa-times"></i> ยกเลิกเปรียบเทียบ';
+            btnToggle.classList.replace('btn-outline', 'btn-danger');
+            btnToggle.style.color = '#ef4444';
+            btnToggle.style.borderColor = '#ef4444';
+        }
+        checkboxes.forEach(td => td.classList.remove('hidden'));
+        compareInputs.forEach(cb => cb.checked = false);
+    } else {
+        if (thCompare) thCompare.classList.add('hidden');
+        if (compareActions) compareActions.classList.add('hidden');
+        if (btnToggle) {
+            btnToggle.innerHTML = '<i class="fas fa-balance-scale"></i> เปรียบเทียบข้อมูล';
+            btnToggle.classList.replace('btn-danger', 'btn-outline');
+            btnToggle.style.color = '#0284c7';
+            btnToggle.style.borderColor = '#0284c7';
+        }
+        checkboxes.forEach(td => td.classList.add('hidden'));
+    }
+};
+
+window.handleCompareSelection = function (cb) {
+    if (cb.checked) {
+        if (selectedCompareIds.length >= 5) {
+            alert('คุณสามารถเลือกเปรียบเทียบได้สูงสุด 5 รายการเท่านั้น');
+            cb.checked = false;
+            return;
+        }
+        selectedCompareIds.push(cb.value);
+    } else {
+        selectedCompareIds = selectedCompareIds.filter(id => id !== cb.value);
+    }
+};
+
+window.compareSelectedRecords = function () {
+    if (selectedCompareIds.length < 2) {
+        alert('กรุณาเลือกประวัติอย่างน้อย 2 รายการเพื่อทำการเปรียบเทียบ');
+        return;
+    }
+
+    const allRecords = JSON.parse(localStorage.getItem(DB_RECORDS)) || [];
+    const recordsToCompare = allRecords.filter(r => selectedCompareIds.includes(r.id));
+
+    // Sort oldest to newest for the chart timeline
+    recordsToCompare.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    document.getElementById('modal-compare-history').classList.add('active');
+
+    // Use the existing renderChart function to render into the compare modal
+    renderChart(recordsToCompare, 'compare-charts-wrapper');
+};
+
+window.loadDashboardCropStandards = async function (cropId) {
+    currentCropId = cropId;
+    try {
+        const docRef = db.collection('crop_standards').doc(cropId);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+            const data = docSnap.data();
+            localStorage.setItem(DB_FIELDS, JSON.stringify(data.fields || []));
+            localStorage.setItem(DB_STANDARDS, JSON.stringify(data.standards || []));
+            localStorage.setItem(DB_ADVICES, JSON.stringify(data.advices || []));
+        } else {
+            // fallback to empty if crop doesn't exist
+            localStorage.setItem(DB_FIELDS, JSON.stringify([]));
+            localStorage.setItem(DB_STANDARDS, JSON.stringify([]));
+            localStorage.setItem(DB_ADVICES, JSON.stringify([]));
+        }
+        renderDynamicFields();
+    } catch (error) {
+        console.error("Error loading crop standards: ", error);
+        alert("เกิดข้อผิดพลาดในการโหลดข้อมูลจาก Firebase");
+    }
+};
 
 // View Switch Helper
 function switchDashboardTab(tabId) {
@@ -156,7 +249,7 @@ function renderDynamicFields() {
 
         let label = field.name;
         if (field.unit) label += ` (${field.unit})`;
-        
+
         const std = standards.find(s => s.fieldId === field.id);
         const stdText = std ? `<span style="float:right; font-size: 0.8rem; color: var(--text-muted); font-weight: 400;"><i class="fas fa-info-circle"></i> มาตรฐาน: ${std.minVal} - ${std.maxVal} ${field.unit || ''}</span>` : '';
 
@@ -169,13 +262,13 @@ function renderDynamicFields() {
 }
 
 // Wizard Navigation Controller
-window.goToWizardStep = function(step) {
+window.goToWizardStep = function (step) {
     // Hide all steps
     for (let i = 1; i <= 4; i++) {
         const el = document.getElementById(`wizard-step-${i}`);
         if (el) el.style.display = 'none';
     }
-    
+
     // Show target step
     const targetEl = document.getElementById(`wizard-step-${step}`);
     if (targetEl) {
@@ -185,12 +278,44 @@ window.goToWizardStep = function(step) {
         void targetEl.offsetWidth;
         targetEl.classList.add('animate-fade-in');
     }
-    
+
     // Update Stepper Bar UI
     if (typeof updateStepper === 'function') {
         updateStepper(step);
     }
 };
+
+// Helper function to evaluate formula and generate HTML badge
+function generateFormulaResultHtml(formulaId, val, min = 0, max = 0) {
+    if (!formulaId) return '';
+
+    // Lazy load formulas from LocalStorage
+    const formulas = JSON.parse(localStorage.getItem('soil_app_formulas')) || [];
+    const found = formulas.find(f => f.id === formulaId);
+
+    if (!found) return '';
+
+    try {
+        // Replace 'val', 'min', 'max' with numeric values
+        let parsedFormula = found.expression.replace(/\bval\b/g, val);
+        parsedFormula = parsedFormula.replace(/\bmin\b/g, min);
+        parsedFormula = parsedFormula.replace(/\bmax\b/g, max);
+
+        // Evaluate the math string safely
+        const result = new Function('return ' + parsedFormula)();
+        if (isNaN(result) || !isFinite(result)) return '';
+
+        // Format to max 2 decimal places
+        const finalResult = Number.isInteger(result) ? result : parseFloat(result.toFixed(2));
+
+        return `<div style="margin-top: 8px; padding: 10px 15px; background: rgba(16, 185, 129, 0.1); border-left: 4px solid var(--primary-color); border-radius: 4px; color: var(--primary-color); font-weight: 600; font-size: 0.95rem;">
+            <i class="fas fa-calculator mr-2"></i> ปริมาณแนะนำ: <span style="font-size: 1.1rem;">${finalResult}</span>
+        </div>`;
+    } catch (e) {
+        console.error('Error parsing formula:', found.expression, e);
+        return '';
+    }
+}
 
 // Dynamic Analysis Engine using Admin Configured Standards
 document.getElementById('form-analyze').addEventListener('submit', (e) => {
@@ -202,7 +327,7 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
     setTimeout(() => {
         const plotNameInput = document.getElementById('plot-name');
         const plotName = plotNameInput ? plotNameInput.value.trim() : 'ไม่ระบุแปลง';
-        
+
         const inputs = document.querySelectorAll('.dynamic-input');
         const data = {};
 
@@ -253,29 +378,41 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
 
                     if (std.crops) recommendedCropsList.push(std.crops);
                     if (std.fertilizers) recommendedFertilizersList.push(std.fertilizers);
-                    
+
+                    let finalAdviceText = adviceText;
+                    if (matchedAdvice && matchedAdvice.formulaId) {
+                        finalAdviceText += generateFormulaResultHtml(matchedAdvice.formulaId, val, std.minVal, std.maxVal);
+                    }
+
                     advices.push({
                         fieldId: fieldId,
                         fieldName: item.name,
                         val: val,
                         stdMin: std.minVal,
                         stdMax: std.maxVal,
+                        idealVal: std.idealVal || `${std.minVal} - ${std.maxVal}`,
                         unit: std.unit || '',
                         status: status,
                         statusHtml: statusHtml,
-                        adviceText: adviceText
+                        adviceText: finalAdviceText
                     });
                 } else {
+                    let finalAdviceText = adviceText;
+                    if (matchedAdvice && matchedAdvice.formulaId) {
+                        finalAdviceText += generateFormulaResultHtml(matchedAdvice.formulaId, val, 0, 0);
+                    }
+
                     advices.push({
                         fieldId: fieldId,
                         fieldName: item.name,
                         val: val,
                         stdMin: '-',
                         stdMax: '-',
+                        idealVal: '-',
                         unit: '',
                         status: 'info',
                         statusHtml: `<span class="badge" style="background: rgba(2, 132, 199, 0.1); color: var(--secondary-color);"><i class="fas fa-info"></i> ข้อมูลทั่วไป</span>`,
-                        adviceText: matchedAdvice ? matchedAdvice.adviceText : ''
+                        adviceText: finalAdviceText
                     });
                 }
             }
@@ -294,33 +431,50 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
             status: isOverallGood ? 'good' : 'needs_improvement'
         };
 
-        // Render Results Table (Desktop)
-        const resultTbody = document.getElementById('analysis-result-table-body');
-        if (resultTbody) {
-            resultTbody.innerHTML = advices.map(a => `
-                <tr>
-                    <td style="font-weight: 500;">${a.fieldName}</td>
-                    <td style="color: var(--text-secondary);">${a.stdMin} - ${a.stdMax} ${a.unit}</td>
-                    <td style="font-weight: 600; color: var(--primary-color);">${a.val} ${a.unit}</td>
-                    <td>
-                        <div style="margin-bottom: 0.25rem;">${a.statusHtml}</div>
-                        ${a.adviceText ? `<div style="font-size: 0.8rem; color: var(--text-muted);">${a.adviceText}</div>` : ''}
-                    </td>
-                </tr>
+        // Render Box 1: Analysis Results
+        const boxResults = document.getElementById('box-analysis-results');
+        if (boxResults) {
+            boxResults.innerHTML = advices.map(a => `
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
+                    <span>${a.fieldName} <strong style="margin-left: 0.5rem; color: var(--text-primary); font-size: 1.05rem;">${a.val}</strong> <span class="text-muted" style="font-size: 0.85rem;">${a.unit}</span></span>
+                    <span style="min-width: 100px; text-align: right;">${a.statusHtml}</span>
+                </div>
             `).join('');
         }
 
-        // Render Results Cards (Mobile)
-        const mobileCardsContainer = document.getElementById('analysis-result-mobile-cards');
-        if (mobileCardsContainer) {
-            mobileCardsContainer.innerHTML = generateMobileCardsHtml(advices);
+        // Render Box 2: Optimal Standards
+        const boxOptimal = document.getElementById('box-optimal-standards');
+        if (boxOptimal) {
+            boxOptimal.innerHTML = advices.map(a => `
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
+                    <span>${a.fieldName}</span>
+                    <span style="font-weight: 600; color: #0284c7;">${a.idealVal} <span class="text-muted" style="font-size: 0.85rem; font-weight: normal;">${a.unit}</span></span>
+                </div>
+            `).join('');
         }
 
-        document.getElementById('recommended-crops').textContent = crops;
-        document.getElementById('recommended-fertilizers').textContent = fertilizers;
+        // Render Box 3: Recommended Crops & Fertilizers
+        const boxCrops = document.getElementById('box-recommended-crops');
+        if (boxCrops) boxCrops.textContent = crops;
+        const boxFertilizers = document.getElementById('box-recommended-fertilizers');
+        if (boxFertilizers) boxFertilizers.textContent = fertilizers;
 
-        // Render Single Analysis Chart
+        // Render Box 4: Advices
+        const boxAdvices = document.getElementById('box-advices');
+        if (boxAdvices) {
+            const validAdvices = advices.filter(a => a.adviceText && a.adviceText.trim() !== '' && a.adviceText !== 'ควรปรับปรุงสภาพดินให้อยู่ในเกณฑ์มาตรฐาน');
+            if (validAdvices.length > 0) {
+                boxAdvices.innerHTML = '<ol style="margin: 0; padding-left: 1.25rem;">' +
+                    validAdvices.map(a => `<li style="margin-bottom: 0.75rem;"><strong>${a.fieldName}:</strong> ${a.adviceText}</li>`).join('') +
+                    '</ol>';
+            } else {
+                boxAdvices.innerHTML = '<div class="text-muted text-center" style="padding: 1rem;"><i class="fas fa-check-circle text-emerald"></i> ดินอยู่ในสภาพสมบูรณ์ ไม่จำเป็นต้องจัดการเพิ่มเติม</div>';
+            }
+        }
+
+        // Render Single Analysis Chart & Radar Chart
         renderChart([currentAnalysisResult], 'analysis-charts-wrapper');
+        renderRadarChart(advices);
 
         // 2. Go to Recommendations Step
         goToWizardStep(3);
@@ -328,78 +482,97 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
 });
 
 // Save Record
-window.saveRecord = function () {
+window.saveRecord = async function () {
     if (!currentAnalysisResult) return;
 
-    let records = JSON.parse(localStorage.getItem(DB_RECORDS)) || [];
-
-    if (window.editingRecordId) {
-        // Update existing record
-        const index = records.findIndex(r => r.id === window.editingRecordId);
-        if (index !== -1) {
-            records[index] = {
-                ...records[index],
-                ...currentAnalysisResult,
-                // Keep original ID and date, or update date? Usually better to update date to reflect edit time
-                date: new Date().toISOString()
-            };
-        }
-        window.editingRecordId = null;
-    } else {
-        // Create new record
-        records.push({
-            id: Date.now().toString(),
+    try {
+        const recordData = {
             userId: currentUser.id,
-            ...currentAnalysisResult
-        });
-    }
+            farmerName: currentUser.name,
+            cropType: currentCropId,
+            ...currentAnalysisResult,
+            date: new Date().toISOString()
+        };
 
-    localStorage.setItem(DB_RECORDS, JSON.stringify(records));
-    // updateStepper(4) is handled inside saveRecord when user chooses step 4
-    alert('บันทึกข้อมูลผลการวิเคราะห์เรียบร้อยแล้ว!');
-    currentAnalysisResult = null;
-    document.getElementById('form-analyze').reset();
-    
-    switchDashboardTab('history');
-    goToWizardStep(1);
+        if (window.editingRecordId) {
+            // Update existing record
+            await db.collection('analysis_history').doc(window.editingRecordId).update(recordData);
+            window.editingRecordId = null;
+        } else {
+            // Create new record
+            await db.collection('analysis_history').add(recordData);
+        }
+
+        alert('บันทึกข้อมูลผลการวิเคราะห์ลงฐานข้อมูลเรียบร้อยแล้ว!');
+        currentAnalysisResult = null;
+        document.getElementById('form-analyze').reset();
+
+        switchDashboardTab('history');
+        goToWizardStep(1);
+    } catch (error) {
+        console.error("Error saving record: ", error);
+        alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+    }
 };
 
 // Render History Table
-function renderHistory() {
-    const allRecords = JSON.parse(localStorage.getItem(DB_RECORDS)) || [];
-    const userRecords = allRecords.filter(r => r.userId === currentUser.id).sort((a, b) => new Date(a.date) - new Date(b.date));
-
+async function renderHistory() {
     const tbody = document.getElementById('history-table-body');
-    tbody.innerHTML = '';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted" style="padding: 2rem;"><i class="fas fa-spinner fa-spin"></i> กำลังโหลดข้อมูล...</td></tr>';
 
-    if (userRecords.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted" style="padding: 2rem;">ยังไม่มีประวัติการวิเคราะห์ดิน</td></tr>';
-        return;
+    try {
+        const snapshot = await db.collection('analysis_history')
+            .where('userId', '==', currentUser.id)
+            .get();
+
+        const userRecords = [];
+        snapshot.forEach(doc => {
+            userRecords.push({ id: doc.id, ...doc.data() });
+        });
+
+        userRecords.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        tbody.innerHTML = '';
+
+        if (userRecords.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted" style="padding: 2rem;">ยังไม่มีประวัติการวิเคราะห์ดิน</td></tr>';
+            return;
+        }
+
+        [...userRecords].reverse().forEach(record => {
+            const date = new Date(record.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="td-compare-checkbox ${isCompareMode ? '' : 'hidden'}" style="text-align: center;">
+                    <input type="checkbox" value="${record.id}" class="compare-checkbox" onchange="handleCompareSelection(this)" ${selectedCompareIds.includes(record.id) ? 'checked' : ''}>
+                </td>
+                <td style="font-weight: 600;">${date}</td>
+                <td><span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--primary-color); border: 1px solid rgba(16,185,129,0.3);"><i class="fas fa-map-marker-alt"></i> ${record.plotName || 'ไม่ระบุ'}</span></td>
+                <td style="text-align: right; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button class="btn btn-emerald" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-radius: var(--radius-full);" onclick="viewHistoryDetail('${record.id}')" title="ดูข้อมูล">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    <button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-radius: var(--radius-full); border-color: #eab308; color: #eab308;" onclick="editRecord('${record.id}')" title="แก้ไข">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-radius: var(--radius-full); border-color: #ef4444; color: #ef4444;" onclick="deleteRecord('${record.id}')" title="ลบ">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // Save to local for functions that need synchronous access like editRecord and viewHistoryDetail
+        localStorage.setItem(DB_RECORDS, JSON.stringify(userRecords));
+
+        // Render Historical Trend Line Chart
+        renderHistoryTrendChart(userRecords);
+    } catch (error) {
+        console.error("Error fetching history: ", error);
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger" style="padding: 2rem;">ไม่สามารถโหลดข้อมูลประวัติได้</td></tr>';
     }
-
-    [...userRecords].reverse().forEach(record => {
-        const date = new Date(record.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td style="font-weight: 600;">${date}</td>
-            <td><span class="badge" style="background: rgba(16, 185, 129, 0.1); color: var(--primary-color); border: 1px solid rgba(16,185,129,0.3);"><i class="fas fa-map-marker-alt"></i> ${record.plotName || 'ไม่ระบุ'}</span></td>
-            <td style="text-align: right; display: flex; gap: 0.5rem; justify-content: flex-end;">
-                <button class="btn btn-emerald" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-radius: var(--radius-full);" onclick="viewHistoryDetail('${record.id}')" title="ดูข้อมูล">
-                    <i class="fas fa-search"></i>
-                </button>
-                <button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-radius: var(--radius-full); border-color: #eab308; color: #eab308;" onclick="editRecord('${record.id}')" title="แก้ไข">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-radius: var(--radius-full); border-color: #ef4444; color: #ef4444;" onclick="deleteRecord('${record.id}')" title="ลบ">
-                    <i class="fas fa-trash-alt"></i>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
-
-    renderChart(userRecords);
 }
 
 // Render Scientific Threshold Benchmark Charts
@@ -408,7 +581,7 @@ function renderChart(records, wrapperId = 'history-charts-wrapper') {
     if (!wrapper) return;
 
     wrapper.innerHTML = '';
-    
+
     if (!window.chartInstancesCache) window.chartInstancesCache = {};
     if (window.chartInstancesCache[wrapperId] && window.chartInstancesCache[wrapperId].length > 0) {
         window.chartInstancesCache[wrapperId].forEach(chart => chart.destroy());
@@ -426,8 +599,12 @@ function renderChart(records, wrapperId = 'history-charts-wrapper') {
         return;
     }
 
-    const labels = records.map(r => new Date(r.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }));
-
+    let labels;
+    if (wrapperId === 'compare-charts-wrapper') {
+        labels = records.map(r => [r.plotName || 'ไม่ระบุ', `(${new Date(r.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })})`]);
+    } else {
+        labels = records.map(r => new Date(r.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }));
+    }
     // Create a scientific threshold chart for EVERY field in the system
     targetFields.forEach((fieldObj, index) => {
         const std = standards.find(s => s.fieldId === fieldObj.id) || {};
@@ -506,15 +683,30 @@ function renderChart(records, wrapperId = 'history-charts-wrapper') {
             }
         });
 
-        const boxBgColors = statusColors.map(c => c.bg);
-        const boxBorderColors = statusColors.map(c => c.border);
+        const distinctColors = [
+            { bg: 'rgba(59, 130, 246, 0.85)', border: '#2563eb' }, // Blue
+            { bg: 'rgba(139, 92, 246, 0.85)', border: '#7c3aed' }, // Purple
+            { bg: 'rgba(236, 72, 153, 0.85)', border: '#db2777' }, // Pink
+            { bg: 'rgba(245, 158, 11, 0.85)', border: '#d97706' }, // Amber
+            { bg: 'rgba(16, 185, 129, 0.85)', border: '#059669' }  // Emerald
+        ];
+
+        let boxBgColors, boxBorderColors;
+
+        if (wrapperId === 'compare-charts-wrapper') {
+            boxBgColors = records.map((_, i) => distinctColors[i % distinctColors.length].bg);
+            boxBorderColors = records.map((_, i) => distinctColors[i % distinctColors.length].border);
+        } else {
+            boxBgColors = statusColors.map(c => c.bg);
+            boxBorderColors = statusColors.map(c => c.border);
+        }
 
         // Create canvas wrapper
         const canvasWrapper = document.createElement('div');
         canvasWrapper.className = 'glass-card chart-container';
         canvasWrapper.style.height = '270px';
         canvasWrapper.style.padding = '0.85rem 0.6rem';
-        
+
         const canvas = document.createElement('canvas');
         canvas.id = `${wrapperId}_chart_${std.fieldId || index}`;
         canvasWrapper.appendChild(canvas);
@@ -530,12 +722,12 @@ function renderChart(records, wrapperId = 'history-charts-wrapper') {
                     const ctx = chart.ctx;
                     const xAxis = chart.scales.x;
                     const yAxis = chart.scales.y;
-                    
+
                     chart.data.datasets.forEach(dataset => {
                         if (dataset.type === 'line' && (dataset.label.includes('Max') || dataset.label.includes('Min'))) {
                             const yVal = dataset.data[0];
                             const yPixel = yAxis.getPixelForValue(yVal);
-                            
+
                             ctx.save();
                             ctx.beginPath();
                             ctx.moveTo(xAxis.left, yPixel);
@@ -626,14 +818,14 @@ function renderChart(records, wrapperId = 'history-charts-wrapper') {
                             padding: 6,
                             font: { family: 'Prompt', size: 10 },
                             color: textColor,
-                            filter: function(item) {
+                            filter: function (item) {
                                 return !item.text.includes('ตำแหน่งค่าจริง');
                             }
                         }
                     },
                     tooltip: {
                         callbacks: {
-                            label: function(context) {
+                            label: function (context) {
                                 const idx = context.dataIndex;
                                 const val = fieldData[idx];
                                 const st = statusColors[idx];
@@ -815,16 +1007,16 @@ window.exportHistoryExcel = function () {
 };
 
 // Stepper Progress Bar Controller
-window.updateStepper = function(stepState) {
+window.updateStepper = function (stepState) {
     const item1 = document.getElementById('step-item-1');
     const item2 = document.getElementById('step-item-2');
     const item3 = document.getElementById('step-item-3');
     const item4 = document.getElementById('step-item-4');
-    
+
     const line1 = document.getElementById('step-line-1');
     const line2 = document.getElementById('step-line-2');
     const line3 = document.getElementById('step-line-3');
-    
+
     if (!item1) return;
 
     [item1, item2, item3, item4].forEach(item => {
@@ -858,41 +1050,61 @@ window.updateStepper = function(stepState) {
 };
 
 // View History Details in Modal
-window.viewHistoryDetail = function(id) {
+window.viewHistoryDetail = function (id) {
     const allRecords = JSON.parse(localStorage.getItem(DB_RECORDS)) || [];
     const record = allRecords.find(r => r.id === id);
     if (!record) return;
+    window.lastOpenedHistoryRecord = record;
 
     const modalBody = document.getElementById('history-detail-body');
     const date = new Date(record.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
     const time = new Date(record.date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
-    let tableRows = '';
+    let boxResultsHtml = '';
+    let boxOptimalHtml = '';
+    let boxAdvicesHtml = '';
+
     if (record.advices && Array.isArray(record.advices) && typeof record.advices[0] === 'object') {
-        tableRows = record.advices.map(a => `
-            <tr>
-                <td style="font-weight: 500;">${a.fieldName}</td>
-                <td style="color: var(--text-secondary);">${a.stdMin} - ${a.stdMax} ${a.unit}</td>
-                <td style="font-weight: 600; color: var(--primary-color);">${a.val} ${a.unit}</td>
-                <td>
-                    <div style="margin-bottom: 0.25rem;">${a.statusHtml}</div>
-                    ${a.adviceText ? `<div style="font-size: 0.8rem; color: var(--text-muted);">${a.adviceText}</div>` : ''}
-                </td>
-            </tr>
+        boxResultsHtml = record.advices.map(a => `
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
+                <span>${a.fieldName} <strong style="margin-left: 0.5rem; color: var(--text-primary); font-size: 1.05rem;">${a.val}</strong> <span class="text-muted" style="font-size: 0.85rem;">${a.unit}</span></span>
+                <span style="min-width: 100px; text-align: right;">${a.statusHtml}</span>
+            </div>
         `).join('');
+
+        boxOptimalHtml = record.advices.map(a => `
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
+                <span>${a.fieldName}</span>
+                <span style="font-weight: 600; color: #0284c7;">${a.idealVal || '-'} <span class="text-muted" style="font-size: 0.85rem; font-weight: normal;">${a.unit}</span></span>
+            </div>
+        `).join('');
+
+        const validAdvices = record.advices.filter(a => a.adviceText && a.adviceText.trim() !== '' && a.adviceText !== 'ควรปรับปรุงสภาพดินให้อยู่ในเกณฑ์มาตรฐาน');
+        if (validAdvices.length > 0) {
+            boxAdvicesHtml = '<ol style="margin: 0; padding-left: 1.25rem;">' +
+                validAdvices.map(a => `<li style="margin-bottom: 0.75rem;"><strong>${a.fieldName}:</strong> ${a.adviceText}</li>`).join('') +
+                '</ol>';
+        } else {
+            boxAdvicesHtml = '<div class="text-muted text-center" style="padding: 1rem;"><i class="fas fa-check-circle text-emerald"></i> ดินอยู่ในสภาพสมบูรณ์ ไม่จำเป็นต้องจัดการเพิ่มเติม</div>';
+        }
     } else {
         // Fallback for old data structure
         Object.keys(record.data).forEach(fieldId => {
             const item = record.data[fieldId];
-            tableRows += `
-                <tr>
-                    <td style="font-weight: 500;">${item.name}</td>
-                    <td style="color: var(--text-secondary);">-</td>
-                    <td style="font-weight: 600; color: var(--primary-color);">${item.value}</td>
-                    <td>-</td>
-                </tr>
+            boxResultsHtml += `
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
+                    <span>${item.name} <strong style="margin-left: 0.5rem; color: var(--text-primary); font-size: 1.05rem;">${item.value}</strong></span>
+                    <span style="min-width: 100px; text-align: right;">-</span>
+                </div>
+            `;
+            boxOptimalHtml += `
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
+                    <span>${item.name}</span>
+                    <span style="font-weight: 600; color: #0284c7;">-</span>
+                </div>
             `;
         });
+        boxAdvicesHtml = '<div class="text-muted text-center">ไม่มีข้อมูลคำแนะนำ</div>';
     }
 
     modalBody.innerHTML = `
@@ -900,61 +1112,74 @@ window.viewHistoryDetail = function(id) {
             <div style="font-size: 0.9rem; color: var(--text-muted);">วันที่วิเคราะห์</div>
             <div style="font-size: 1.1rem; font-weight: 600; color: var(--text-primary);">${date} เวลา ${time} น.</div>
             <div class="mt-2">
-                ${record.status === 'good' 
-                    ? '<span class="badge badge-success px-3 py-1" style="font-size: 0.9rem;"><i class="fas fa-check-circle"></i> สถานะ: เหมาะสม</span>' 
-                    : '<span class="badge badge-warning px-3 py-1" style="font-size: 0.9rem;"><i class="fas fa-exclamation-triangle"></i> สถานะ: ต้องปรับปรุง</span>'}
+                ${record.status === 'good'
+            ? '<span class="badge badge-success px-3 py-1" style="font-size: 0.9rem;"><i class="fas fa-check-circle"></i> สถานะ: เหมาะสม</span>'
+            : '<span class="badge badge-warning px-3 py-1" style="font-size: 0.9rem;"><i class="fas fa-exclamation-triangle"></i> สถานะ: ต้องปรับปรุง</span>'}
             </div>
         </div>
 
-        <h4 class="mb-2 text-emerald"><i class="fas fa-flask"></i> ผลการประเมินสภาพดิน</h4>
-        <div class="table-container desktop-only-table mb-4">
-            <table>
-                <thead>
-                    <tr>
-                        <th>ตัวแปรดิน</th>
-                        <th>ค่ามาตรฐาน</th>
-                        <th>ค่าที่วัดได้</th>
-                        <th>ผลประเมิน</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${tableRows}
-                </tbody>
-            </table>
-        </div>
-        <div class="mobile-only-cards mb-4">
-            ${generateMobileCardsHtml(record.advices)}
+        <div class="ldd-report-grid mb-6" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; text-align: left;">
+            <!-- Box 1: Analysis Results -->
+            <div class="glass-card">
+                <h4 class="mb-3" style="color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem; text-align: left;"><i class="fas fa-microscope"></i> ผลวิเคราะห์</h4>
+                <div style="font-size: 0.95rem;">
+                    ${boxResultsHtml}
+                </div>
+            </div>
+            
+            <!-- Box 2: Optimal Standards -->
+            <div class="glass-card">
+                <h4 class="mb-3" style="color: #0284c7; border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem; text-align: left;"><i class="fas fa-bullseye"></i> เกณฑ์มาตรฐานที่เหมาะสม</h4>
+                <div style="font-size: 0.95rem;">
+                    ${boxOptimalHtml}
+                </div>
+            </div>
+
+            <!-- Box 3: Recommended Fertilizers -->
+            <div class="glass-card" style="grid-column: 1 / -1; text-align: left;">
+                <h4 class="mb-3" style="color: #d97706; border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;"><i class="fas fa-seedling"></i> พืชที่แนะนำและสูตรปุ๋ย</h4>
+                <div style="font-size: 0.95rem; line-height: 1.6;">
+                    <div class="mb-2"><strong>พืชที่แนะนำ:</strong> <span class="text-emerald font-semibold">${record.crops || '-'}</span></div>
+                    <div><strong>สูตรปุ๋ย:</strong> <span style="color: #b45309; font-weight: 600;">${record.fertilizers || '-'}</span></div>
+                </div>
+            </div>
+
+            <!-- Box 4: Advices -->
+            <div class="glass-card" style="grid-column: 1 / -1; text-align: left;">
+                <h4 class="mb-3" style="color: #7c3aed; border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;"><i class="fas fa-lightbulb"></i> คำแนะนำการจัดการดินและธาตุอาหาร</h4>
+                <div style="line-height: 1.8; font-size: 0.95rem;">
+                    ${boxAdvicesHtml}
+                </div>
+            </div>
+
+            <!-- Radar Chart Card -->
+            <div class="glass-card" style="grid-column: 1 / -1; text-align: left; padding: 1.25rem;">
+                <div class="flex justify-between items-center mb-3 pb-2" style="border-bottom: 1px solid var(--border-color);">
+                    <h4 style="color: var(--primary-color); margin: 0; font-size: 1.05rem;"><i class="fas fa-project-diagram mr-2"></i> สมดุลธาตุอาหารในดิน (Nutrient Balance Radar Chart)</h4>
+                    <span class="badge badge-success" style="background: rgba(16, 185, 129, 0.1); color: var(--primary-color); font-size: 0.78rem;"><i class="fas fa-check-circle mr-1"></i> เกณฑ์ 100%</span>
+                </div>
+                <div style="max-width: 480px; margin: 0 auto; position: relative; height: 320px;">
+                    <canvas id="modalRadarChartCanvas"></canvas>
+                </div>
+            </div>
         </div>
         
         <div id="modal-charts-wrapper" class="responsive-chart-grid mb-4">
             <!-- Modal charts injected here -->
         </div>
-
-        <h4 class="mb-2 text-emerald"><i class="fas fa-lightbulb"></i> คำแนะนำและพืชที่เหมาะสม</h4>
-        <div class="glass-card" style="padding: 0.75rem 1rem;">
-            <div class="mb-3">
-                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">พืชที่แนะนำ:</div>
-                <div style="font-weight: 600; color: var(--secondary-color);">${record.crops}</div>
-            </div>
-            <div class="mb-3">
-                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">สูตรปุ๋ยแนะนำ:</div>
-                <div style="font-weight: 600; color: var(--warning-color);">${record.fertilizers}</div>
-            </div>
-            <div>
-                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">ผลประเมินรายตัว:</div>
-                ${record.advices ? record.advices.map(a => `<div style="font-size: 0.85rem; margin-bottom: 0.5rem; line-height: 1.4;">${typeof a === 'object' ? a.adviceText || '-' : a}</div>`).join('') : ''}
-            </div>
-        </div>
     `;
 
     document.getElementById('modal-history-detail').classList.add('active');
-    
+
     // Render Modal Charts
     renderChart([record], 'modal-charts-wrapper');
+    if (record.advices) {
+        renderRadarChart(record.advices, 'modalRadarChartCanvas');
+    }
 };
 
 // Close Modal
-window.closeModal = function(modalId) {
+window.closeModal = function (modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
         modal.classList.remove('active');
@@ -962,15 +1187,15 @@ window.closeModal = function(modalId) {
 };
 
 // Edit Record
-window.editRecord = function(id) {
+window.editRecord = function (id) {
     const allRecords = JSON.parse(localStorage.getItem(DB_RECORDS)) || [];
     const record = allRecords.find(r => r.id === id);
     if (!record) return;
-    
+
     // Load data into Step 1
     const plotNameInput = document.getElementById('plot-name');
     if (plotNameInput) plotNameInput.value = record.plotName || '';
-    
+
     const inputs = document.querySelectorAll('.dynamic-input');
     inputs.forEach(input => {
         const fieldId = input.getAttribute('data-id');
@@ -978,119 +1203,298 @@ window.editRecord = function(id) {
             input.value = record.data[fieldId].value;
         }
     });
-    
+
     window.editingRecordId = id;
-    
+
     switchDashboardTab('analyze');
     goToWizardStep(1);
-    
+
     // Show a small toast or alert
     alert('ข้อมูลถูกโหลดเข้าสู่แบบฟอร์มเพื่อแก้ไขแล้ว เมื่อคุณกดวิเคราะห์และบันทึก จะเป็นการแก้ไขข้อมูลเดิม');
 };
 
 // Delete Record
-window.deleteRecord = function(id) {
+window.deleteRecord = async function (id) {
     if (confirm('คุณแน่ใจหรือไม่ว่าต้องการลบประวัติการวิเคราะห์ดินรายการนี้? (การกระทำนี้ไม่สามารถย้อนกลับได้)')) {
-        let allRecords = JSON.parse(localStorage.getItem(DB_RECORDS)) || [];
-        allRecords = allRecords.filter(r => r.id !== id);
-        localStorage.setItem(DB_RECORDS, JSON.stringify(allRecords));
-        renderHistory();
+        try {
+            await db.collection('analysis_history').doc(id).delete();
+            alert('ลบข้อมูลสำเร็จ');
+            renderHistory();
+        } catch (error) {
+            console.error("Error deleting record: ", error);
+            alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+        }
     }
 };
 
-// Export to Image (PNG) using html2canvas
-window.exportAnalysisImage = function(elementId, filename) {
-    const targetElement = document.getElementById(elementId) || document.querySelector(elementId);
-    if (!targetElement) {
-        alert('ไม่พบส่วนที่ต้องการส่งออกรูปภาพ');
-        return;
+// ================= OFFICIAL REPORT EXPORT (PDF & PNG) =================
+function generateOfficialReportContainer(recordData) {
+    const data = recordData || currentAnalysisResult || {};
+    const dateStr = new Date(data.date || Date.now()).toLocaleDateString('th-TH', {
+        year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const timeStr = new Date(data.date || Date.now()).toLocaleTimeString('th-TH', {
+        hour: '2-digit', minute: '2-digit'
+    });
+
+    const cropName = data.cropType === 'durian' ? 'ทุเรียน' : (data.cropType === 'rice' ? 'ข้าว' : (data.cropType === 'sugarcane' ? 'อ้อย' : 'พืชทั่วไป'));
+    const farmerName = (currentUser && currentUser.name) ? currentUser.name : (data.farmerName || 'เกษตรกรผู้ถือแปลง');
+    const farmerPhone = (currentUser && currentUser.phone) ? currentUser.phone : '-';
+    const plotName = data.plotName || 'แปลงเกษตรทั่วไป';
+
+    // 1. Capture Radar Chart Canvas
+    let radarImgSrc = '';
+    const radarCanvas = document.getElementById('modalRadarChartCanvas') || document.getElementById('radarChartCanvas');
+    if (radarCanvas) {
+        try {
+            radarImgSrc = radarCanvas.toDataURL('image/png');
+        } catch (e) {
+            console.warn('Could not capture radar canvas:', e);
+        }
     }
-    
+
+    // 2. Build Analysis Table Rows
+    let tableRows = '';
+    if (data.advices && Array.isArray(data.advices) && typeof data.advices[0] === 'object') {
+        tableRows = data.advices.map(a => {
+            const adviceCleanText = a.adviceText ? a.adviceText.replace(/<[^>]*>?/gm, '') : '-';
+            return `
+                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                    <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">${a.fieldName}</td>
+                    <td style="padding: 8px 10px; text-align: center; font-weight: 700; color: #0f172a; font-size: 14px;">${a.val} <span style="font-size: 11px; color: #64748b; font-weight: normal;">${a.unit || ''}</span></td>
+                    <td style="padding: 8px 10px; text-align: center; color: #0284c7; font-weight: 600;">${a.idealVal || (a.stdMin + ' - ' + a.stdMax)} ${a.unit || ''}</td>
+                    <td style="padding: 8px 10px; text-align: center;">${a.statusHtml || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    } else if (data.data) {
+        Object.keys(data.data).forEach(k => {
+            const item = data.data[k];
+            tableRows += `
+                <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+                    <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">${item.name}</td>
+                    <td style="padding: 8px 10px; text-align: center; font-weight: 700; color: #0f172a; font-size: 14px;">${item.value}</td>
+                    <td style="padding: 8px 10px; text-align: center; color: #0284c7;">-</td>
+                    <td style="padding: 8px 10px; text-align: center;">-</td>
+                </tr>
+            `;
+        });
+    }
+
+    // 3. Build Advices List
+    let advicesList = '';
+    if (data.advices && Array.isArray(data.advices)) {
+        if (typeof data.advices[0] === 'object') {
+            const valid = data.advices.filter(a => a.adviceText && a.adviceText.trim() !== '' && a.adviceText !== 'ควรปรับปรุงสภาพดินให้อยู่ในเกณฑ์มาตรฐาน');
+            if (valid.length > 0) {
+                advicesList = valid.map((a, idx) => `
+                    <li style="margin-bottom: 6px; font-size: 13px; color: #334155; line-height: 1.5;">
+                        <strong>${idx + 1}. ${a.fieldName}:</strong> ${a.adviceText}
+                    </li>
+                `).join('');
+            } else {
+                advicesList = '<div style="color: #10b981; font-size: 13px;">สภาพดินอยู่ในเกณฑ์สมบูรณ์ดีตามมาตรฐาน ไม่จำเป็นต้องใส่สารปรับปรุงดินเพิ่มเติม</div>';
+            }
+        } else {
+            advicesList = data.advices.map((a, idx) => `<li style="margin-bottom: 6px; font-size: 13px; color: #334155;">${idx + 1}. ${a}</li>`).join('');
+        }
+    }
+
+    // 4. Construct Official Container
+    const container = document.createElement('div');
+    container.className = 'official-pdf-container';
+    container.style.width = '794px'; // A4 pixel width at 96dpi
+    container.style.padding = '35px 40px';
+    container.style.background = '#ffffff';
+    container.style.color = '#0f172a';
+    container.style.fontFamily = "'Prompt', 'Sarabun', sans-serif";
+    container.style.boxSizing = 'border-box';
+    // Fix for white page: Place at top left but under everything
+    container.style.position = 'absolute';
+    container.style.left = '0';
+    container.style.top = '0';
+    container.style.zIndex = '-9999';
+
+    container.innerHTML = `
+        <!-- Official Header (กรมพัฒนาที่ดิน Style) -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, #10b981, #059669); display: flex; align-items: center; justify-content: center; color: white; font-size: 26px; box-shadow: 0 4px 10px rgba(16,185,129,0.25);">
+                    <i class="fas fa-seedling"></i>
+                </div>
+                <div>
+                    <h2 style="margin: 0; color: #059669; font-size: 20px; font-weight: 700; line-height: 1.2;">Smart Soil Analysis Center</h2>
+                    <span style="font-size: 13px; color: #475569; font-weight: 500;">ระบบวิเคราะห์ดิน | เพื่อการจัดการอย่างแม่นยำ </span>
+                </div>
+            </div>
+            <div style="text-align: right; font-size: 12px; color: #475569; line-height: 1.4;">
+                <div style="font-weight: 700; color: #059669; font-size: 13px;">ใบรายงานผลทางการ (Official Certificate)</div>
+                <div>วันที่ออกเอกสาร: ${dateStr}</div>
+                <div>เวลา: ${timeStr} น.</div>
+            </div>
+        </div>
+
+        <!-- Document Title -->
+        <div style="text-align: center; margin-bottom: 20px; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <h1 style="margin: 0; font-size: 21px; font-weight: 700; color: #0f172a;">ผลการวิเคราะห์การใช้ปุ๋ยและปรับปรุงคุณภาพดิน</h1>
+            <div style="font-size: 14px; color: #059669; font-weight: 600; margin-top: 4px;">
+                ชนิดพืช: <strong>${cropName}</strong> | แปลงเกษตร: <strong>${plotName}</strong> | เกษตรกร: <strong>${farmerName}</strong> (${farmerPhone})
+            </div>
+        </div>
+
+        <!-- Section 1: Analysis Table -->
+        <div style="margin-bottom: 18px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 15px; color: #059669; border-left: 4px solid #059669; padding-left: 8px;">1. ผลตรวจวิเคราะห์สภาพดินเทียบเกณฑ์มาตรฐาน</h3>
+            <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1;">
+                <thead>
+                    <tr style="background: #f1f5f9; color: #334155; font-size: 13px; text-align: left;">
+                        <th style="padding: 8px 10px; border-bottom: 2px solid #cbd5e1;">ตัวแปรวัดสภาพดิน</th>
+                        <th style="padding: 8px 10px; border-bottom: 2px solid #cbd5e1; text-align: center;">ค่าที่วัดได้</th>
+                        <th style="padding: 8px 10px; border-bottom: 2px solid #cbd5e1; text-align: center;">เกณฑ์เหมาะสม</th>
+                        <th style="padding: 8px 10px; border-bottom: 2px solid #cbd5e1; text-align: center;">การประเมินสถานะ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 2: Recommended Crops & Fertilizers -->
+        <div style="display: flex; gap: 14px; margin-bottom: 18px;">
+            <div style="flex: 1; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px;">
+                <div style="font-size: 13px; font-weight: 700; color: #166534; margin-bottom: 4px;"><i class="fas fa-leaf mr-1"></i> พืชที่แนะนำให้เพาะปลูก:</div>
+                <div style="font-size: 14px; font-weight: 600; color: #15803d;">${data.crops || '-'}</div>
+            </div>
+            <div style="flex: 1; background: #fefce8; border: 1px solid #fef08a; padding: 12px; border-radius: 8px;">
+                <div style="font-size: 13px; font-weight: 700; color: #854d0e; margin-bottom: 4px;"><i class="fas fa-flask mr-1"></i> แผนและสูตรปุ๋ยพื้นฐาน:</div>
+                <div style="font-size: 14px; font-weight: 600; color: #a16207;">${data.fertilizers || '-'}</div>
+            </div>
+        </div>
+
+        <!-- Section 3: Smart Advices -->
+        <div style="margin-bottom: 20px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 15px; color: #7c3aed; border-left: 4px solid #7c3aed; padding-left: 8px;">2. คำแนะนำการใส่ปุ๋ยและปรับปรุงคุณภาพดินอัจฉริยะ</h3>
+            <ul style="margin: 0; padding-left: 18px;">
+                ${advicesList}
+            </ul>
+        </div>
+
+        <!-- Section 4: Embedded Charts (Radar Chart Only) -->
+        <div style="margin-bottom: 20px; page-break-inside: avoid;">
+            <h3 style="margin: 0 0 10px 0; font-size: 15px; color: #0284c7; border-left: 4px solid #0284c7; padding-left: 8px;">3. แผนภูมิแสดงสมดุลธาตุอาหาร</h3>
+            <div style="display: flex; gap: 16px; align-items: center; justify-content: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;">
+                ${radarImgSrc ? `
+                <div style="text-align: center; flex: 1;">
+                    <div style="font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">🕸️ กราฟใยแมงมุมสมดุลธาตุอาหาร (100% Ideal)</div>
+                    <img src="${radarImgSrc}" style="max-width: 320px; width: 100%; height: auto; object-fit: contain;">
+                </div>` : '<div style="text-align: center; width: 100%; color: #64748b; font-size: 13px;">(ไม่พบข้อมูลกราฟใยแมงมุม)</div>'}
+            </div>
+        </div>
+
+        <!-- Official Signatures & Seal Footer -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; pt-15px; border-top: 1px solid #cbd5e1; page-break-inside: avoid;">
+            <div style="font-size: 11px; color: #64748b; line-height: 1.6;">
+                * เอกสารนี้ได้รับการประมวลผลอัตโนมัติด้วยระบบ Smart Soil Engine<br>
+                * ใช้เป็นคำแนะนำสำหรับการปรับปรุงดินและการใส่ปุ๋ยทางการเกษตรแม่นยำ<br>
+                * รหัสอ้างอิงเอกสาร: SSL-REPORT-${Date.now().toString().slice(-6)}
+            </div>
+            <div style="text-align: center; width: 200px;">
+                <div style="border-bottom: 1px dashed #94a3b8; height: 40px; margin-bottom: 4px;"></div>
+                <div style="font-size: 13px; font-weight: 600; color: #334155;">(${farmerName})</div>
+                <div style="font-size: 11px; color: #64748b;">ผู้ขอรับการวิเคราะห์ดิน</div>
+            </div>
+        </div>
+    `;
+
+    return container;
+}
+
+// Unified Official Export Image (PNG)
+window.exportAnalysisImage = function (elementId, filename) {
+    let targetRecord = currentAnalysisResult;
+    if (!targetRecord && window.lastOpenedHistoryRecord) {
+        targetRecord = window.lastOpenedHistoryRecord;
+    }
+
     if (typeof html2canvas === 'undefined') {
-        alert('ไลบรารีสำหรับบันทึกรูปภาพยังโหลดไม่เสร็จสมบูรณ์ โปรดลองอีกครั้ง');
+        alert('ไลบรารี html2canvas ยังโหลดไม่เสร็จสมบูรณ์ โปรดลองอีกครั้ง');
         return;
     }
-    
+
     const e = window.event;
     const btn = e ? e.currentTarget : null;
     let btnText = '';
-    
     if (btn) {
         btnText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังประมวลผล...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังสร้างรูปภาพทางการ...';
     }
-    
-    html2canvas(targetElement, {
+
+    const reportContainer = generateOfficialReportContainer(targetRecord);
+    document.body.appendChild(reportContainer);
+
+    html2canvas(reportContainer, {
         scale: 2, // High resolution
-        backgroundColor: document.documentElement.getAttribute('data-theme') === 'dark' ? '#0f172a' : '#f1f5f9',
-        useCORS: true,
-        onclone: function (clonedDoc) {
-            const el = clonedDoc.getElementById(elementId) || clonedDoc.querySelector(elementId);
-            if (el) {
-                el.style.display = 'block';
-            }
-        }
+        backgroundColor: '#ffffff',
+        useCORS: true
     }).then(canvas => {
         const imgData = canvas.toDataURL('image/png');
-        if (imgData === 'data:,') {
-            throw new Error('Canvas is empty or corrupted');
-        }
         const link = document.createElement('a');
-        link.download = filename;
+        link.download = filename || `รายงานวิเคราะห์ดิน_${targetRecord ? targetRecord.plotName : 'Official'}.png`;
         link.href = imgData;
         link.click();
+        reportContainer.remove();
         if (btn) btn.innerHTML = btnText;
     }).catch(err => {
         console.error('Error generating image:', err);
+        if (reportContainer) reportContainer.remove();
         alert('เกิดข้อผิดพลาดในการสร้างรูปภาพ');
         if (btn) btn.innerHTML = btnText;
     });
 };
 
-// Export to PDF using html2pdf
-window.exportAnalysisPDF = function(elementId, filename) {
-    const targetElement = document.getElementById(elementId) || document.querySelector(elementId);
-    if (!targetElement) {
-        alert('ไม่พบส่วนที่ต้องการส่งออก PDF');
-        return;
+// Unified Official Export PDF
+window.exportAnalysisPDF = function (elementId, filename) {
+    let targetRecord = currentAnalysisResult;
+    if (!targetRecord && window.lastOpenedHistoryRecord) {
+        targetRecord = window.lastOpenedHistoryRecord;
     }
-    
+
     if (typeof html2pdf === 'undefined') {
-        alert('ไลบรารีสำหรับสร้าง PDF ยังโหลดไม่เสร็จสมบูรณ์');
+        alert('ไลบรารี html2pdf ยังโหลดไม่เสร็จสมบูรณ์');
         return;
     }
-    
+
     const e = window.event;
     const btn = e ? e.currentTarget : null;
     let btnText = '';
-    
     if (btn) {
         btnText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังประมวลผล...';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังสร้าง PDF ทางการ...';
     }
-    
+
+    const reportContainer = generateOfficialReportContainer(targetRecord);
+    document.body.appendChild(reportContainer);
+
     const opt = {
-        margin:       10,
-        filename:     filename || 'SmartSoil_Report.pdf',
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-            scale: 2, 
-            useCORS: true, 
-            backgroundColor: document.documentElement.getAttribute('data-theme') === 'dark' ? '#0f172a' : '#f1f5f9',
-            onclone: function (clonedDoc) {
-                const el = clonedDoc.getElementById(elementId) || clonedDoc.querySelector(elementId);
-                if (el) {
-                    el.style.display = 'block';
-                }
-            }
+        margin: 8,
+        filename: filename || `รายงานวิเคราะห์ดินทางการ_${targetRecord ? targetRecord.plotName : 'Official'}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff'
         },
-        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
-    
-    html2pdf().set(opt).from(targetElement).save().then(() => {
+
+    html2pdf().set(opt).from(reportContainer).save().then(() => {
+        reportContainer.remove();
         if (btn) btn.innerHTML = btnText;
     }).catch(err => {
         console.error('Error generating PDF:', err);
+        if (reportContainer) reportContainer.remove();
+        alert('เกิดข้อผิดพลาดในการสร้าง PDF');
         if (btn) btn.innerHTML = btnText;
     });
 };
@@ -1134,8 +1538,302 @@ function generateMobileCardsHtml(advices) {
     }).join('');
 }
 
+// ================= PILLAR 3: CHARTS & VISUALIZATIONS =================
+if (!window.radarChartInstances) window.radarChartInstances = {};
+
+function renderRadarChart(advices, canvasId = 'radarChartCanvas') {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    if (window.radarChartInstances[canvasId]) {
+        window.radarChartInstances[canvasId].destroy();
+        window.radarChartInstances[canvasId] = null;
+    }
+
+    if (!advices || advices.length === 0) return;
+
+    // Filter only fields with valid min-max standards
+    const validAdvices = advices.filter(a => a.stdMin !== '-' && !isNaN(a.val));
+    if (validAdvices.length === 0) return;
+
+    const labels = validAdvices.map(a => a.fieldName);
+    const idealScores = validAdvices.map(() => 100); // Ideal target is 100%
+
+    // Calculate score for each field: (val / midpoint) * 100
+    const actualScores = validAdvices.map(a => {
+        const min = parseFloat(a.stdMin);
+        const max = parseFloat(a.stdMax);
+        const mid = (min + max) / 2;
+        if (isNaN(mid) || mid === 0) return 100;
+
+        let score = (a.val / mid) * 100;
+        // Cap max score at 160% for chart visual clarity
+        return Math.min(Math.round(score), 160);
+    });
+
+    const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
+    const textColor = isDarkMode ? '#cbd5e1' : '#475569';
+    const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)';
+
+    window.radarChartInstances[canvasId] = new Chart(canvas, {
+        type: 'radar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'เกณฑ์สมบูรณ์แบบ (Ideal 100%)',
+                    data: idealScores,
+                    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                    borderColor: 'rgba(16, 185, 129, 0.8)',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#10b981',
+                    borderDash: [4, 4]
+                },
+                {
+                    label: 'ค่าดินปัจจุบันของคุณ',
+                    data: actualScores,
+                    backgroundColor: 'rgba(2, 132, 199, 0.25)',
+                    borderColor: '#0284c7',
+                    borderWidth: 3,
+                    pointBackgroundColor: '#0284c7',
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                r: {
+                    angleLines: { color: gridColor },
+                    grid: { color: gridColor },
+                    pointLabels: {
+                        color: textColor,
+                        font: { size: 11, family: "'Prompt', sans-serif", weight: '500' }
+                    },
+                    ticks: {
+                        color: textColor,
+                        backdropColor: 'transparent',
+                        stepSize: 25,
+                        font: { size: 9 }
+                    },
+                    suggestedMin: 0,
+                    suggestedMax: 140
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: textColor,
+                        font: { family: "'Prompt', sans-serif", size: 12 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return `${context.dataset.label}: ${context.raw}%`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+let currentTrendChart = null;
+let cachedHistoryRecords = [];
+
+window.onTrendPlotSelect = function (selectedPlot) {
+    if (cachedHistoryRecords && cachedHistoryRecords.length > 0) {
+        renderHistoryTrendChart(cachedHistoryRecords, selectedPlot);
+    }
+};
+
+function populatePlotSelector(userRecords, selectedPlot = 'ALL') {
+    const selector = document.getElementById('trend-plot-selector');
+    if (!selector) return;
+
+    const plotNames = Array.from(new Set(userRecords.map(r => r.plotName || 'ไม่ระบุ')));
+
+    let html = `<option value="ALL" ${selectedPlot === 'ALL' ? 'selected' : ''}>ทุกแปลงเกษตร (ทั้งหมด)</option>`;
+    plotNames.forEach(name => {
+        const isSelected = selectedPlot === name ? 'selected' : '';
+        html += `<option value="${name}" ${isSelected}>แปลง: ${name}</option>`;
+    });
+
+    selector.innerHTML = html;
+}
+
+function renderHistoryTrendChart(userRecords, selectedPlot = 'ALL') {
+    const canvas = document.getElementById('historyTrendCanvas');
+    if (!canvas) return;
+
+    cachedHistoryRecords = userRecords;
+    populatePlotSelector(userRecords, selectedPlot);
+
+    if (currentTrendChart) {
+        currentTrendChart.destroy();
+        currentTrendChart = null;
+    }
+
+    if (!userRecords || userRecords.length === 0) {
+        return;
+    }
+
+    // Filter by selected plot
+    let filteredRecords = userRecords;
+    if (selectedPlot && selectedPlot !== 'ALL') {
+        filteredRecords = userRecords.filter(r => (r.plotName || 'ไม่ระบุ') === selectedPlot);
+    }
+
+    if (filteredRecords.length === 0) {
+        return;
+    }
+
+    // Sort ascending by date
+    const sorted = [...filteredRecords].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Check if multiple records share the same date string (same day)
+    const dateStrings = sorted.map(r => new Date(r.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }));
+    const hasSameDayDuplicates = new Set(dateStrings).size < dateStrings.length;
+
+    // Prepare labels with time if same day or single plot selected
+    const labels = sorted.map(r => {
+        const d = new Date(r.date);
+        const dateStr = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+        const timeStr = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        return (hasSameDayDuplicates || (selectedPlot && selectedPlot !== 'ALL')) ? `${dateStr} ${timeStr}` : dateStr;
+    });
+
+    // Extract parameters over time: pH, OM, P, K
+    const extractParamData = (paramName) => {
+        return sorted.map(r => {
+            if (r.advices) {
+                const adv = r.advices.find(a => a.fieldName && a.fieldName.toLowerCase().includes(paramName.toLowerCase()));
+                return adv ? adv.val : null;
+            }
+            return null;
+        });
+    };
+
+    const phValues = extractParamData('pH');
+    const omValues = extractParamData('OM');
+    const pValues = extractParamData('P');
+    const kValues = extractParamData('K');
+
+    const datasets = [];
+    const colors = {
+        pH: '#10b981',
+        OM: '#f59e0b',
+        P: '#0284c7',
+        K: '#8b5cf6'
+    };
+
+    if (phValues.some(v => v !== null)) {
+        datasets.push({
+            label: 'pH (กรด-ด่าง)',
+            data: phValues,
+            borderColor: colors.pH,
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            tension: 0.35,
+            fill: false,
+            borderWidth: 3,
+            pointRadius: 5,
+            pointBackgroundColor: '#10b981'
+        });
+    }
+
+    if (omValues.some(v => v !== null)) {
+        datasets.push({
+            label: 'OM (%)',
+            data: omValues,
+            borderColor: colors.OM,
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            tension: 0.35,
+            fill: false,
+            borderWidth: 3,
+            pointRadius: 5,
+            pointBackgroundColor: '#f59e0b'
+        });
+    }
+
+    if (pValues.some(v => v !== null)) {
+        datasets.push({
+            label: 'P (mg/kg)',
+            data: pValues,
+            borderColor: colors.P,
+            backgroundColor: 'rgba(2, 132, 199, 0.1)',
+            tension: 0.35,
+            fill: false,
+            borderWidth: 2,
+            borderDash: [4, 4],
+            pointRadius: 4,
+            pointBackgroundColor: '#0284c7'
+        });
+    }
+
+    if (kValues.some(v => v !== null)) {
+        datasets.push({
+            label: 'K (mg/kg)',
+            data: kValues,
+            borderColor: colors.K,
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+            tension: 0.35,
+            fill: false,
+            borderWidth: 2,
+            borderDash: [4, 4],
+            pointRadius: 4,
+            pointBackgroundColor: '#8b5cf6'
+        });
+    }
+
+    const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
+    const textColor = isDarkMode ? '#cbd5e1' : '#475569';
+    const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)';
+
+    currentTrendChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: textColor, font: { family: "'Prompt', sans-serif", size: 11 } }
+                },
+                tooltip: {
+                    callbacks: {
+                        title: function (items) {
+                            const idx = items[0].dataIndex;
+                            const rec = sorted[idx];
+                            return `แปลง: ${rec.plotName || 'ไม่ระบุ'} (${items[0].label})`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: gridColor },
+                    ticks: { color: textColor, font: { family: "'Prompt', sans-serif", size: 10 } }
+                },
+                y: {
+                    grid: { color: gridColor },
+                    ticks: { color: textColor, font: { family: "'Prompt', sans-serif", size: 10 } },
+                    beginAtZero: false
+                }
+            }
+        }
+    });
+}
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
-    renderDynamicFields();
+    loadDashboardCropStandards('general');
     goToWizardStep(1);
 });

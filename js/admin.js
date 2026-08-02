@@ -72,65 +72,248 @@ const DB_FIELDS = 'soil_app_fields';
 const DB_STANDARDS = 'soil_app_standards';
 const DB_ADVICES = 'soil_app_advices';
 
-// Initialize DB for fields if empty
-if (!localStorage.getItem(DB_FIELDS)) {
-    const defaultFields = [
-        { id: '1', name: 'ค่า pH (ความเป็นกรด-ด่าง)', unit: '', type: 'number' },
-        { id: '2', name: 'ความชื้นในดิน', unit: '%', type: 'number' },
-        { id: '3', name: 'ไนโตรเจน (N)', unit: 'mg/kg', type: 'number' },
-        { id: '4', name: 'ฟอสฟอรัส (P)', unit: 'mg/kg', type: 'number' },
-        { id: '5', name: 'โพแทสเซียม (K)', unit: 'mg/kg', type: 'number' }
-    ];
-    localStorage.setItem(DB_FIELDS, JSON.stringify(defaultFields));
-}
+// Firebase Sync Functions for Crops
+let currentCropId = 'general';
 
-// Initialize DB for Standards if empty
-if (!localStorage.getItem(DB_STANDARDS)) {
-    const defaultStandards = [
-        {
-            id: '1',
-            fieldId: '1',
-            minVal: 5.5,
-            maxVal: 7.5,
-            idealVal: '6.0 - 7.0 (เหมาะสมดีมาก)',
-            crops: 'ข้าวหอมมะลิ, ข้าวโพดเลี้ยงสัตว์, อ้อยโรงงาน',
-            fertilizers: 'สูตร 15-15-15 (50 กก./ไร่) ร่วมกับปุ๋ยหมักอินทรีย์'
-        },
-        {
-            id: '2',
-            fieldId: '2',
-            minVal: 40,
-            maxVal: 70,
-            idealVal: '50% - 60%',
-            crops: 'พืชผักสวนครัว, ไม้ผล, มันสำปะหลัง',
-            fertilizers: 'ปุ๋ยคอกและวัสดุอุ้มน้ำ'
+window.loadCropStandards = async function(cropId) {
+    currentCropId = cropId;
+    try {
+        const docRef = db.collection('crop_standards').doc(cropId);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+            const data = docSnap.data();
+            localStorage.setItem(DB_FIELDS, JSON.stringify(data.fields || []));
+            localStorage.setItem(DB_STANDARDS, JSON.stringify(data.standards || []));
+            localStorage.setItem(DB_ADVICES, JSON.stringify(data.advices || []));
+        } else {
+            // If doesn't exist (e.g. new crop selected or first time loading 'general')
+            if (cropId === 'general') {
+                // Seed default data for general
+                await seedDefaultGeneralCrop();
+            } else if (cropId === 'durian') {
+                await seedDurianCrop();
+            } else {
+                localStorage.setItem(DB_FIELDS, JSON.stringify([]));
+                localStorage.setItem(DB_STANDARDS, JSON.stringify([]));
+                localStorage.setItem(DB_ADVICES, JSON.stringify([]));
+            }
         }
+        
+        const btnReset = document.getElementById('btn-reset-general');
+        if (btnReset) {
+            btnReset.style.display = (cropId === 'general' || cropId === 'durian') ? 'inline-block' : 'none';
+        }
+
+        // Auto-migration for legacy {{ }} formulas
+        let advicesList = JSON.parse(localStorage.getItem(DB_ADVICES)) || [];
+        let hasLegacy = false;
+        let currentFormulas = getFormulas();
+
+        advicesList.forEach(adv => {
+            if (adv.adviceText && adv.adviceText.includes('{{') && adv.adviceText.includes('}}')) {
+                hasLegacy = true;
+                const match = adv.adviceText.match(/\{\{(.*?)\}\}/);
+                if (match) {
+                    const rawFormula = match[1].trim();
+                    let formulaId = 'migrated_' + Date.now() + '_' + Math.floor(Math.random()*1000);
+                    
+                    const existing = currentFormulas.find(f => f.expression === rawFormula);
+                    if (existing) {
+                        formulaId = existing.id;
+                    } else {
+                        currentFormulas.push({
+                            id: formulaId,
+                            name: 'สูตรประเมิน (สร้างอัตโนมัติ)',
+                            expression: rawFormula
+                        });
+                    }
+
+                    // Remove {{}} and the unit wrapped around it if present
+                    let newText = adv.adviceText.replace(/จำนวน\s*\{\{.*?\}\}\s*กก\.\/ไร่/g, '').trim();
+                    if (newText === adv.adviceText) {
+                        newText = adv.adviceText.replace(/\{\{.*?\}\}/g, '').trim();
+                    }
+                    
+                    adv.adviceText = newText;
+                    adv.formulaId = formulaId;
+                }
+            }
+        });
+
+        if (hasLegacy) {
+            saveFormulas(currentFormulas);
+            saveAdvices(advicesList);
+        }
+        
+        renderFieldsStandardsTable();
+    } catch (error) {
+        console.error("Error loading crop standards: ", error);
+        alert("เกิดข้อผิดพลาดในการโหลดข้อมูลจาก Firebase");
+    }
+};
+
+async function seedDefaultGeneralCrop() {
+    const defaultFields = [
+        { id: '1', name: 'pH (ค่ากรด-ด่างในดิน)', unit: 'ไม่มี', type: 'number' },
+        { id: '2', name: 'OM (อินทรียวัตถุในดิน)', unit: '%', type: 'number' },
+        { id: '3', name: 'K (โพแทสเซียม)', unit: 'mg/kg', type: 'number' },
+        { id: '4', name: 'P (ฟอสฟอรัส)', unit: 'mg/kg', type: 'number' },
+        { id: '5', name: 'Ca (แคลเซียม)', unit: 'mg/kg', type: 'number' },
+        { id: '6', name: 'Mg (แมกนีเซียม)', unit: 'mg/kg', type: 'number' },
+        { id: '7', name: 'Fe (เหล็ก)', unit: 'mg/kg', type: 'number' },
+        { id: '8', name: 'Zn (สังกะสี)', unit: 'mg/kg', type: 'number' },
+        { id: '9', name: 'Cu (ทองแดง)', unit: 'mg/kg', type: 'number' },
+        { id: '10', name: 'B (โบรอน)', unit: 'mg/kg', type: 'number' },
+        { id: '11', name: 'Mn (แมงกานีส)', unit: 'mg/kg', type: 'number' }
     ];
-    localStorage.setItem(DB_STANDARDS, JSON.stringify(defaultStandards));
+    const defaultStandards = [
+        { id: '1', fieldId: '1', minVal: 5, maxVal: 7, idealVal: '5.5 - 6.5', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '2', fieldId: '2', minVal: 2, maxVal: 3, idealVal: '2 - 3', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '3', fieldId: '3', minVal: 35, maxVal: 60, idealVal: '35 - 60', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '4', fieldId: '4', minVal: 100, maxVal: 120, idealVal: '100 - 120', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '5', fieldId: '5', minVal: 800, maxVal: 1500, idealVal: '800 - 1500', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '6', fieldId: '6', minVal: 250, maxVal: 450, idealVal: '250 - 450', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '7', fieldId: '7', minVal: 60, maxVal: 70, idealVal: '60 - 70', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '8', fieldId: '8', minVal: 3, maxVal: 15, idealVal: '3 - 15', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '9', fieldId: '9', minVal: 3, maxVal: 5, idealVal: '3 - 5', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '10', fieldId: '10', minVal: 4, maxVal: 6, idealVal: '4 - 6', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' },
+        { id: '11', fieldId: '11', minVal: 20, maxVal: 60, idealVal: '20 - 60', crops: 'ยังไม่ได้กำหนด', fertilizers: 'ยังไม่ได้กำหนด' }
+    ];
+    const defaultAdvices = [];
+
+    try {
+        await db.collection('crop_standards').doc('general').set({
+            name: "ดินทั่วไป",
+            fields: defaultFields,
+            standards: defaultStandards,
+            advices: defaultAdvices
+        });
+        localStorage.setItem(DB_FIELDS, JSON.stringify(defaultFields));
+        localStorage.setItem(DB_STANDARDS, JSON.stringify(defaultStandards));
+        localStorage.setItem(DB_ADVICES, JSON.stringify(defaultAdvices));
+    } catch (e) {
+        console.error(e);
+    }
 }
 
-// Initialize DB for Advices if empty
-if (!localStorage.getItem(DB_ADVICES)) {
+async function seedDurianCrop() {
+    const defaultFields = [
+        { id: '1', name: 'pH (ความเป็นกรด-ด่าง)', unit: 'ไม่มี', type: 'number' },
+        { id: '2', name: 'OM (อินทรียวัตถุ)', unit: '%', type: 'number' },
+        { id: '3', name: 'P (ฟอสฟอรัสที่เป็นประโยชน์)', unit: 'mg/kg', type: 'number' },
+        { id: '4', name: 'K (โพแทสเซียมที่แลกเปลี่ยนได้)', unit: 'mg/kg', type: 'number' },
+        { id: '5', name: 'Ca (แคลเซียม)', unit: 'mg/kg', type: 'number' },
+        { id: '6', name: 'Mg (แมกนีเซียม)', unit: 'mg/kg', type: 'number' },
+        { id: '7', name: 'B (โบรอน)', unit: 'mg/kg', type: 'number' },
+        { id: '8', name: 'Zn (สังกะสี)', unit: 'mg/kg', type: 'number' }
+    ];
+    const defaultStandards = [
+        { id: '1', fieldId: '1', minVal: 5.5, maxVal: 6.5, idealVal: '5.5 - 6.5', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '2', fieldId: '2', minVal: 2.5, maxVal: 3.0, idealVal: '> 2.5 - 3.0 %', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '3', fieldId: '3', minVal: 20, maxVal: 40, idealVal: '20 - 40', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '4', fieldId: '4', minVal: 150, maxVal: 300, idealVal: '> 150', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '5', fieldId: '5', minVal: 1000, maxVal: 2500, idealVal: '> 1,000', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '6', fieldId: '6', minVal: 100, maxVal: 200, idealVal: '> 100', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '7', fieldId: '7', minVal: 1.0, maxVal: 2.0, idealVal: '1.0 - 2.0', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' },
+        { id: '8', fieldId: '8', minVal: 2.0, maxVal: 5.0, idealVal: '2.0 - 5.0', crops: 'ทุเรียน', fertilizers: 'ตามคำแนะนำ' }
+    ];
     const defaultAdvices = [
-        { id: 'adv_1', fieldId: '1', minVal: 0, maxVal: 5.49, adviceText: 'ดินเป็นกรด ให้ใส่ปูนขาว 100 กก./ไร่' },
-        { id: 'adv_2', fieldId: '1', minVal: 7.51, maxVal: 14, adviceText: 'ดินเป็นด่าง ให้ใส่ปุ๋ยอินทรีย์หรือกำมะถัน' },
-        { id: 'adv_3', fieldId: '2', minVal: 0, maxVal: 39.9, adviceText: 'ควรให้น้ำเพิ่มด้วยระบบมินิสปริงเกลอร์ หรือคลุมดินด้วยฟางข้าว' }
+        { id: 'adv_1', fieldId: '1', minVal: 0, maxVal: 5.49, formulaId: 'durian_dolomite', adviceText: 'ดินเป็นกรด: ต้องใส่ปูนโดโลไมต์เพิ่มเติม (สำหรับดินร่วนปนทราย) บริเวณทรงพุ่มแล้วให้น้ำตาม เพื่อเพิ่ม pH และเสริม Ca/Mg' },
+        { id: 'adv_2', fieldId: '1', minVal: 6.51, maxVal: 14, adviceText: 'ดินเป็นด่าง: เลือกใช้ปุ๋ยไนโตรเจนที่มีฤทธิ์เป็นกรด เช่น แอมโมเนียมซัลเฟต (21-0-0) แทนยูเรีย หรือใช้กำมะถันผง 100-200 กรัม/ต้น' },
+        { id: 'adv_3', fieldId: '2', minVal: 0, maxVal: 2.49, formulaId: 'durian_om', adviceText: 'เติมปุ๋ยหมัก/ปุ๋ยคอกที่หมักสมบูรณ์แล้ว (ทยอยแบ่งใส่รายปี ปีละ 2,000-3,000 กก.) และตัดหญ้าคลุมโคนต้น' },
+        { id: 'adv_4', fieldId: '2', minVal: 3.01, maxVal: 100, adviceText: 'หาก OM สูงไปในพื้นที่ดินเหนียว อาจทำให้อุ้มน้ำมากไป ให้ลดการใส่ปุ๋ยอินทรีย์และเน้นการระบายอากาศที่โคนต้น' },
+        { id: 'adv_5', fieldId: '3', minVal: 0, maxVal: 19.9, formulaId: 'durian_p', adviceText: 'ปริมาณฟอสฟอรัสต่ำ: ต้องการเนื้อธาตุ P ให้เติมปุ๋ยเคมีสูตรตัวกลางสูงช่วงสะสมอาหารทำดอก เช่น 8-24-24' },
+        { id: 'adv_6', fieldId: '3', minVal: 40.1, maxVal: 9999, adviceText: 'ฟอสฟอรัสสูงจะล็อค Zn และ Fe ทำให้ใบเล็กเหลือง ให้างดปุ๋ยสูตรตัวกลางสูง และฉีดพ่น Zn และ Fe ทางใบแทน' },
+        { id: 'adv_7', fieldId: '4', minVal: 0, maxVal: 149.9, formulaId: 'durian_k', adviceText: 'ปริมาณโพแทสเซียมต่ำ: ใช้ปุ๋ยโพแทสเซียมซัลเฟต (0-0-50) ช่วง 60 วันหลังดอกบานเพื่อขยายพู แบ่งใส่ 2-3 ครั้ง' },
+        { id: 'adv_8', fieldId: '4', minVal: 300.1, maxVal: 9999, adviceText: 'โพแทสเซียมมากไปจะต้านการดูดซึม Ca/Mg ให้างดปุ๋ย K ชั่วคราว และอัด Ca/Mg ทางใบเสริม' },
+        { id: 'adv_9', fieldId: '5', minVal: 0, maxVal: 999.9, formulaId: 'durian_ca', adviceText: 'แคลเซียมต่ำ: ต้องการเนื้อธาตุ Ca บริสุทธิ์ ถ้า pH ปกติให้ใช้ยิปซัม (ถ้าต่ำใช้โดโลไมต์) ควบคู่กับพ่นแคลเซียม-โบรอนทางใบ' },
+        { id: 'adv_10', fieldId: '5', minVal: 2500.1, maxVal: 99999, adviceText: 'ดินที่ใส่โดโลไมต์ซ้ำซาก Ca จะสูงไปกดการกิน K และ Mg ต้องฉีดพ่น K และ Mg ทางใบช่วย' },
+        { id: 'adv_11', fieldId: '6', minVal: 0, maxVal: 99.9, formulaId: 'durian_mg', adviceText: 'แมกนีเซียมต่ำ: ป้องกันใบเหลืองร่วง ให้ใช้คีเซอไรต์ (Mg 15%) ทางดิน หรือฉีดพ่นแมกนีเซียมเดี่ยวทางใบ' },
+        { id: 'adv_12', fieldId: '6', minVal: 200.1, maxVal: 9999, adviceText: 'ปรับให้สมดุลกับสัดส่วน Ca โดยอัตราส่วน Ca:Mg ในดินที่เหมาะสมคือประมาณ 4:1 ถึง 6:1' },
+        { id: 'adv_13', fieldId: '7', minVal: 0, maxVal: 0.99, formulaId: 'durian_b', adviceText: 'โบรอนต่ำ: ต้องการโบรอนเพิ่มเติม ให้พ่นโบรอนทางใบ หรือบอแรกซ์ทางดิน (ห้ามใส่เกินเด็ดขาด เพราะเป็นพิษต่อพืชง่ายมาก)' },
+        { id: 'adv_14', fieldId: '7', minVal: 2.01, maxVal: 999, adviceText: 'เกิดภาวะโบรอนเป็นพิษ ทุเรียนจะมีอาการปลายใบไหม้ ให้รดน้ำชะล้างออก และงดการพ่นแคลเซียม-โบรอน' },
+        { id: 'adv_15', fieldId: '8', minVal: 0, maxVal: 1.99, formulaId: 'durian_zn', adviceText: 'สังกะสีต่ำ: ต้องการซิงค์เพิ่มเติม แก้อาการใบแก้ว/ใบเล็ก โดยฉีดพ่นซิงค์คีเลต หรือหว่านซิงค์ซัลเฟตทางดิน' },
+        { id: 'adv_16', fieldId: '8', minVal: 5.01, maxVal: 999, adviceText: 'สังกะสีที่สูงจะไปกดการดูดซึมเหล็ก มักเกิดจากการใช้ยากำจัดเชื้อราที่มีสังกะสีอย่างต่อเนื่อง ให้สลับกลุ่มยา และฉีดพ่นเหล็ก (Fe) เสริมทางใบ' }
     ];
-    localStorage.setItem(DB_ADVICES, JSON.stringify(defaultAdvices));
+
+    let formulas = getFormulas();
+    const durianFormulas = [
+        { id: 'durian_dolomite', name: 'คำนวณโดโลไมต์ทุเรียน', expression: '(6.0 - val) * 250' },
+        { id: 'durian_om', name: 'คำนวณปุ๋ยหมัก 25%', expression: '(2.5 - val) * 20000 * (100 / 25)' },
+        { id: 'durian_p', name: 'คำนวณฟอสฟอรัสทุเรียน', expression: '(30 - val) * 2' },
+        { id: 'durian_k', name: 'คำนวณโพแทสเซียมซัลเฟต', expression: '((150 - val) * 2) / 50 * 100' },
+        { id: 'durian_ca', name: 'คำนวณแคลเซียมทุเรียน', expression: '(1500 - val) * 2' },
+        { id: 'durian_mg', name: 'คำนวณแมกนีเซียมคีเซอไรต์', expression: '((150 - val) * 2) / 15 * 100' },
+        { id: 'durian_b', name: 'คำนวณโบรอนทุเรียน', expression: '(1.5 - val) * 2' },
+        { id: 'durian_zn', name: 'คำนวณสังกะสีทุเรียน', expression: '(3.5 - val) * 2' }
+    ];
+    
+    durianFormulas.forEach(df => {
+        if (!formulas.find(f => f.id === df.id)) {
+            formulas.push(df);
+        }
+    });
+    saveFormulas(formulas);
+
+    try {
+        await db.collection('crop_standards').doc('durian').set({
+            name: "ทุเรียน",
+            fields: defaultFields,
+            standards: defaultStandards,
+            advices: defaultAdvices
+        });
+        localStorage.setItem(DB_FIELDS, JSON.stringify(defaultFields));
+        localStorage.setItem(DB_STANDARDS, JSON.stringify(defaultStandards));
+        localStorage.setItem(DB_ADVICES, JSON.stringify(defaultAdvices));
+    } catch (e) {
+        console.error(e);
+    }
 }
 
-// Data Loaders
+async function saveCropStandardsToFirebase() {
+    try {
+        await db.collection('crop_standards').doc(currentCropId).set({
+            name: document.getElementById('admin-crop-selector') ? 
+                  document.getElementById('admin-crop-selector').options[document.getElementById('admin-crop-selector').selectedIndex].text : 
+                  currentCropId,
+            fields: getFields(),
+            standards: getStandards(),
+            advices: getAdvices()
+        });
+    } catch (error) {
+        console.error("Error saving crop standards to Firebase: ", error);
+    }
+}
+
+// Data Loaders (Local Cache syncs with Firebase)
 function getUsers() { return JSON.parse(localStorage.getItem(DB_USERS)) || []; }
 function saveUsers(users) { localStorage.setItem(DB_USERS, JSON.stringify(users)); }
 
 function getFields() { return JSON.parse(localStorage.getItem(DB_FIELDS)) || []; }
-function saveFields(fields) { localStorage.setItem(DB_FIELDS, JSON.stringify(fields)); }
+function saveFields(fields) { 
+    localStorage.setItem(DB_FIELDS, JSON.stringify(fields)); 
+    saveCropStandardsToFirebase();
+}
 
 function getStandards() { return JSON.parse(localStorage.getItem(DB_STANDARDS)) || []; }
-function saveStandards(stds) { localStorage.setItem(DB_STANDARDS, JSON.stringify(stds)); }
+function saveStandards(stds) { 
+    localStorage.setItem(DB_STANDARDS, JSON.stringify(stds)); 
+    saveCropStandardsToFirebase();
+}
 
 function getAdvices() { return JSON.parse(localStorage.getItem(DB_ADVICES)) || []; }
-function saveAdvices(advices) { localStorage.setItem(DB_ADVICES, JSON.stringify(advices)); }
+function saveAdvices(advices) { 
+    localStorage.setItem(DB_ADVICES, JSON.stringify(advices)); 
+    saveCropStandardsToFirebase();
+}
+
+const DB_FORMULAS = 'soil_app_formulas';
+function getFormulas() { return JSON.parse(localStorage.getItem(DB_FORMULAS)) || []; }
+function saveFormulas(formulas) { 
+    localStorage.setItem(DB_FORMULAS, JSON.stringify(formulas));
+    saveCropStandardsToFirebase(); // we will save formulas alongside standards or in a separate collection. Let's create a separate save function later or use the same config doc. For now, local is fine.
+}
 
 // Navigation Helper
 function switchAdminTab(targetViewId) {
@@ -143,7 +326,7 @@ function switchAdminTab(targetViewId) {
         }
     });
 
-    const views = ['view-dashboard', 'view-users', 'view-fields-standards'];
+    const views = ['view-dashboard', 'view-users', 'view-fields-standards', 'view-formulas'];
     views.forEach(vId => {
         const v = document.getElementById(vId);
         if (v) v.classList.add('hidden');
@@ -159,6 +342,7 @@ function switchAdminTab(targetViewId) {
     if (targetViewId === 'view-dashboard') renderDashboard();
     if (targetViewId === 'view-users') renderUsersTable();
     if (targetViewId === 'view-fields-standards') renderFieldsStandardsTable();
+    if (targetViewId === 'view-formulas') renderFormulasTable();
 }
 
 // Attach Nav Listeners
@@ -359,30 +543,45 @@ window.deleteFieldStandard = function (fieldId) {
 };
 
 // Dynamic Advice Rows
-window.addAdviceRow = function (min = '', max = '', text = '') {
+window.addAdviceRow = function (min = '', max = '', text = '', formulaId = '') {
     const container = document.getElementById('fs-advices-container');
     if (!container) return;
 
     const row = document.createElement('div');
-    row.className = 'advice-row';
-    row.style.cssText = 'background: #f8fafc; border-left: 3px solid #10b981; border-radius: 6px; padding: 0.85rem; position: relative; transition: all 0.2s ease;';
+    row.className = 'advice-row mb-3';
+    row.style.cssText = 'background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid var(--primary-color); border-radius: 8px; padding: 1.25rem; position: relative; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.05);';
+    
+    const formulas = getFormulas();
+    let formulaOptionsHtml = '<option value="">-- ไม่มีการคำนวณเพิ่มเติม --</option>';
+    formulas.forEach(f => {
+        const selected = (formulaId === f.id) ? 'selected' : '';
+        formulaOptionsHtml += `<option value="${f.id}" ${selected}>${f.name}</option>`;
+    });
+
     row.innerHTML = `
         <button type="button" style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; transition: color 0.2s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#94a3b8'" onclick="this.parentElement.remove()" title="ลบเงื่อนไขนี้">
             <i class="fas fa-times" style="font-size: 0.95rem;"></i>
         </button>
-        <div class="grid grid-cols-2 gap-3 mb-2 pr-6">
+        <div class="grid grid-cols-2 gap-4 mb-3 pr-6">
             <div>
-                <label style="font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 2px; display: block;">ตั้งแต่ค่า (Min)</label>
-                <input type="number" step="any" class="form-control adv-min-input" placeholder="เช่น 0" value="${min}" required style="padding: 0.4rem 0.6rem; font-size: 0.85rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px;">
+                <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">ตั้งแต่ค่า (Min)</label>
+                <input type="number" step="any" class="form-control adv-min-input" placeholder="เช่น 0" value="${min}" required style="padding: 0.5rem 0.75rem; font-size: 0.95rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
             </div>
             <div>
-                <label style="font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 2px; display: block;">ถึงค่า (Max)</label>
-                <input type="number" step="any" class="form-control adv-max-input" placeholder="เช่น 5.4" value="${max}" required style="padding: 0.4rem 0.6rem; font-size: 0.85rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px;">
+                <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">ถึงค่า (Max)</label>
+                <input type="number" step="any" class="form-control adv-max-input" placeholder="เช่น 5.4" value="${max}" required style="padding: 0.5rem 0.75rem; font-size: 0.95rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
             </div>
         </div>
+        <div class="mb-3">
+            <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">ข้อความคำแนะนำ</label>
+            <textarea class="form-control adv-text-input" placeholder="เช่น ต้องใส่ปูนโดโลไมต์เพิ่มเติมบริเวณทรงพุ่ม" required style="padding: 0.6rem 0.75rem; font-size: 0.95rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; min-height: 80px; resize: vertical; width: 100%; line-height: 1.5;">${text}</textarea>
+        </div>
         <div>
-            <label style="font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 2px; display: block;">คำแนะนำสำหรับช่วงนี้</label>
-            <input type="text" class="form-control adv-text-input" placeholder="เช่น ดินเป็นกรด ให้ใส่ปูนขาว 100 กก./ไร่" value="${text}" required style="padding: 0.4rem 0.6rem; font-size: 0.85rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px;">
+            <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">แนบสูตรคำนวณปริมาณ (ตัวเลือกเสริม)</label>
+            <select class="form-control adv-formula-select" style="padding: 0.5rem 0.75rem; font-size: 0.9rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
+                ${formulaOptionsHtml}
+            </select>
+            <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;"><i class="fas fa-info-circle mr-1"></i> ระบบจะนำสมการจากสูตรนี้มาคำนวณ และแสดงผลลัพธ์เป็นตัวเลขต่อท้ายคำแนะนำให้อัตโนมัติ</p>
         </div>
     `;
     container.appendChild(row);
@@ -395,7 +594,7 @@ window.renderAdviceRows = function (fieldId) {
     if (fieldId) {
         const advices = getAdvices().filter(a => a.fieldId === fieldId);
         advices.forEach(adv => {
-            window.addAdviceRow(adv.minVal, adv.maxVal, adv.adviceText);
+            window.addAdviceRow(adv.minVal, adv.maxVal, adv.adviceText, adv.formulaId || '');
         });
     } else {
         // default empty row
@@ -519,13 +718,17 @@ if (formFieldStandard) {
             const advMax = parseFloat(row.querySelector('.adv-max-input').value);
             const advText = row.querySelector('.adv-text-input').value;
 
+            const advFormulaSelect = row.querySelector('.adv-formula-select');
+            const advFormulaId = advFormulaSelect ? advFormulaSelect.value : '';
+
             if (!isNaN(advMin) && !isNaN(advMax) && advText.trim() !== '') {
                 advices.push({
                     id: 'adv_' + Date.now().toString() + '_' + idx,
                     fieldId: newFieldId,
                     minVal: advMin,
                     maxVal: advMax,
-                    adviceText: advText
+                    adviceText: advText,
+                    formulaId: advFormulaId
                 });
             }
         });
@@ -720,9 +923,105 @@ window.exportStandardsPDF = function () {
     html2pdf().set(opt).from(printElement).save();
 };
 
+// ==========================================
+// FORMULA LIBRARY MANAGEMENT
+// ==========================================
+
+window.renderFormulasTable = function () {
+    const list = document.getElementById('formulas-list');
+    if (!list) return;
+
+    const formulas = getFormulas();
+    list.innerHTML = '';
+
+    if (formulas.length === 0) {
+        list.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 2rem; color: #94a3b8;">ยังไม่มีสูตรคำนวณในระบบ</td></tr>`;
+        return;
+    }
+
+    formulas.forEach(f => {
+        const row = document.createElement('tr');
+        row.style.borderBottom = '1px solid #e2e8f0';
+        row.innerHTML = `
+            <td style="padding: 1rem; color: var(--text-color);"><code>${f.id}</code></td>
+            <td style="padding: 1rem; color: var(--text-color); font-weight: 500;">${f.name}</td>
+            <td style="padding: 1rem; color: var(--primary-color);"><code>${f.expression}</code></td>
+            <td style="padding: 1rem; text-align: center;">
+                <button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: #3b82f6; color: #3b82f6;" onclick="editFormula('${f.id}')"><i class="fas fa-edit"></i></button>
+                <button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: #ef4444; color: #ef4444;" onclick="deleteFormula('${f.id}')"><i class="fas fa-trash"></i></button>
+            </td>
+        `;
+        list.appendChild(row);
+    });
+};
+
+window.showFormulaModal = function (formulaId = null) {
+    document.getElementById('form-formula').reset();
+    document.getElementById('formula-id').readOnly = false;
+    document.getElementById('modal-formula-title').innerHTML = '<i class="fas fa-calculator"></i> เพิ่มสูตรคำนวณใหม่';
+
+    if (formulaId) {
+        const formulas = getFormulas();
+        const formula = formulas.find(f => f.id === formulaId);
+        if (formula) {
+            document.getElementById('formula-id').value = formula.id;
+            document.getElementById('formula-id').readOnly = true;
+            document.getElementById('formula-name').value = formula.name;
+            document.getElementById('formula-expression').value = formula.expression;
+            document.getElementById('modal-formula-title').innerHTML = '<i class="fas fa-edit"></i> แก้ไขสูตรคำนวณ';
+        }
+    }
+
+    document.getElementById('modal-formula').style.display = 'flex';
+    document.getElementById('modal-formula').classList.remove('hidden');
+};
+
+document.getElementById('form-formula')?.addEventListener('submit', function (e) {
+    e.preventDefault();
+    let id = document.getElementById('formula-id').value.trim();
+    const name = document.getElementById('formula-name').value.trim();
+    const expression = document.getElementById('formula-expression').value.trim();
+
+    if (!id) {
+        id = 'form_' + Date.now();
+    }
+
+    let formulas = getFormulas();
+    const existingIndex = formulas.findIndex(f => f.id === id);
+
+    if (existingIndex >= 0) {
+        formulas[existingIndex] = { id, name, expression };
+    } else {
+        formulas.push({ id, name, expression });
+    }
+
+    saveFormulas(formulas);
+    window.closeModal('modal-formula');
+    renderFormulasTable();
+    
+    // Auto-update any open Advice row dropdowns
+    if (!document.getElementById('modal-field-standard').classList.contains('hidden')) {
+        renderAdviceRows(document.getElementById('fs-field-id').value);
+    }
+});
+
+window.editFormula = function (id) {
+    showFormulaModal(id);
+};
+
+window.deleteFormula = function (id) {
+    if (confirm('คุณแน่ใจหรือไม่ว่าต้องการลบสูตรคำนวณนี้? (คำแนะนำที่อ้างอิงสูตรนี้อาจไม่สามารถคำนวณได้)')) {
+        let formulas = getFormulas();
+        formulas = formulas.filter(f => f.id !== id);
+        saveFormulas(formulas);
+        renderFormulasTable();
+    }
+};
+
 // Init
 document.addEventListener('DOMContentLoaded', () => {
     renderDashboard();
     renderUsersTable();
-    renderFieldsStandardsTable();
+    // Load default general crop on start
+    loadCropStandards('general');
 });

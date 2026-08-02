@@ -315,12 +315,28 @@ h4 { font-size: 1.1rem; font-weight: 600; }
   width: 100%;
   padding: 0.85rem 1.15rem;
   background: var(--bg-input);
-  border: 1px solid var(--border-color);
+  border: 1.5px solid var(--border-color);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.95rem;
+  font-size: 1rem; /* Prevent iOS auto-zoom */
   transition: var(--transition);
+  box-sizing: border-box;
+}
+
+select.form-control {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23059669'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  background-size: 1.1rem;
+  padding-right: 2.75rem;
+  cursor: pointer;
+}
+
+[data-theme="dark"] select.form-control {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2334d399'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2.5' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
 }
 
 .form-control:focus {
@@ -915,6 +931,17 @@ tr:hover td {
 
 @media (max-width: 640px) {
   #history-charts-wrapper {
+    grid-template-columns: 1fr !important;
+  }
+  .modal-content {
+    width: 95% !important;
+    max-width: 95% !important;
+    padding: 1.2rem 1rem !important;
+    margin: 1rem auto !important;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .ldd-report-grid {
     grid-template-columns: 1fr !important;
   }
 }
