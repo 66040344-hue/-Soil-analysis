@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Soil - เกษตรกร</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+
+<body>
+
+    <!-- Mobile Top Header -->
+    <div class="mobile-header">
+        <div class="flex items-center gap-2">
+            <div
+                style="width: 36px; height: 36px; border-radius: 50%; background: var(--gradient-emerald); display: flex; align-items: center; justify-content: center; color: #ffffff; font-weight: bold;">
+                <i class="fas fa-seedling"></i>
+            </div>
+            <div>
+                <h3 class="text-emerald" style="font-size: 1.1rem; line-height: 1;">Smart Soil</h3>
+                <span class="text-muted" style="font-size: 0.75rem;" id="mobile-user-name">Farmer</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button class="theme-toggle-btn btn btn-outline"
+                style="padding: 0.4rem 0.7rem; border-radius: var(--radius-full);" onclick="toggleTheme()"
+                title="สลับธีม สว่าง/มืด">
+                <i class="fas fa-moon theme-icon"></i>
+            </button>
+            <button id="mobile-logout-btn" class="btn btn-outline" style="padding: 0.4rem 0.6rem; font-size: 0.8rem;">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="dashboard-layout">
+        <!-- Desktop Sidebar -->
+        <div class="sidebar">
+            <div class="mb-8 flex items-center gap-3">
+                <div
+                    style="width: 44px; height: 44px; border-radius: 14px; background: var(--gradient-emerald); display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 1.4rem; box-shadow: var(--shadow-emerald-glow);">
+                    <i class="fas fa-leaf"></i>
+                </div>
+                <div>
+                    <h2 class="text-emerald" style="font-size: 1.35rem; line-height: 1; font-weight: 700;">Smart Soil
+                    </h2>
+                    <span class="text-muted" style="font-size: 0.78rem;">ระบบวิเคราะห์ดินเกษตรกร</span>
+                </div>
+            </div>
+
+            <nav class="flex-col" style="flex: 1;">
+                <a href="#" class="nav-link active" id="nav-analyze">
+                    <i class="fas fa-vial"></i> วิเคราะห์ดินใหม่
+                </a>
+                <a href="#" class="nav-link" id="nav-history">
+                    <i class="fas fa-chart-line"></i> ประวัติการวิเคราะห์
+                </a>
+            </nav>
+
+            <div class="mt-auto">
+                <div class="glass-card mb-3 flex items-center justify-between" style="padding: 0.75rem;">
+                    <span style="font-size: 0.85rem; font-weight: 500;"><i
+                            class="fas fa-circle-half-stroke text-emerald"></i> โหมดกลางคืน</span>
+                    <button class="theme-toggle-btn btn btn-outline"
+                        style="padding: 0.35rem 0.75rem; border-radius: var(--radius-full);" onclick="toggleTheme()">
+                        <i class="fas fa-moon theme-icon"></i>
+                    </button>
+                </div>
+
+                <div class="glass-card mb-4 flex items-center gap-3" style="padding: 0.85rem;">
+                    <div
+                        style="width: 38px; height: 38px; border-radius: 50%; background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffffff;">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div style="overflow: hidden;">
+                        <div id="user-name"
+                            style="font-weight: 600; font-size: 0.92rem; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                            Farmer Name</div>
+                        <div class="text-muted" style="font-size: 0.78rem;">เกษตรกรผู้ถือแปลง</div>
+                    </div>
+                </div>
+                <button id="logout-btn" class="btn btn-outline btn-block"><i class="fas fa-sign-out-alt"></i>
+                    ออกจากระบบ</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+
+            <!-- Analyze View -->
+            <div id="view-analyze" class="animate-fade-in">
+                <div class="mb-4">
+                    <h2 class="text-emerald" style="font-size: 1.6rem;">วิเคราะห์สภาพดินแปลงเกษตร</h2>
+                    <p class="text-muted" style="font-size: 0.9rem;">กรอกค่าดินเพื่อประมวลผลคำแนะนำการปรับปรุง พืชที่แนะนำ และแผนการใส่ปุ๋ย</p>
+                </div>
+
+                <!-- Stepper Progress Bar (แสดงขั้นตอนการทำรายการ) -->
+                <div class="stepper-wrapper mb-6">
+                    <div class="stepper-container">
+                        <div class="stepper-item active" id="step-item-1">
+                            <div class="step-circle"><span class="step-num">1</span></div>
+                            <div class="step-label">กรอกค่าดิน</div>
+                        </div>
+                        <div class="step-line" id="step-line-1"></div>
+                        
+                        <div class="stepper-item" id="step-item-2">
+                            <div class="step-circle"><span class="step-num">2</span></div>
+                            <div class="step-label">ประมวลผล</div>
+                        </div>
+                        <div class="step-line" id="step-line-2"></div>
+                        
+                        <div class="stepper-item" id="step-item-3">
+                            <div class="step-circle"><span class="step-num">3</span></div>
+                            <div class="step-label">รับคำแนะนำ</div>
+                        </div>
+                        <div class="step-line" id="step-line-3"></div>
+                        
+                        <div class="stepper-item" id="step-item-4">
+                            <div class="step-circle"><span class="step-num">4</span></div>
+                            <div class="step-label">บันทึก/ส่งออก</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wizard-container" style="max-width: 800px; margin: 0 auto;">
+                    <!-- Step 1: Input Form -->
+                    <div id="wizard-step-1" class="glass-panel animate-fade-in">
+                        <h3 class="mb-4 flex items-center gap-2"><i class="fas fa-edit text-gradient"></i> 1.
+                            ข้อมูลสภาพดินปัจจุบัน</h3>
+                        <form id="form-analyze">
+                            <div class="form-group" style="margin-bottom: 1.5rem;">
+                                <label class="form-label" style="color: var(--primary-color); font-weight: 600;"><i class="fas fa-map-marker-alt"></i> ชื่อแปลงเกษตร</label>
+                                <input type="text" id="plot-name" class="form-control" required placeholder="ระบุชื่อแปลง (เช่น แปลงกข43 เล็ก)">
+                            </div>
+                            <div id="dynamic-fields-container">
+                                <!-- Fields rendered by JS -->
+                            </div>
+                            <button type="submit" class="btn btn-emerald btn-block mt-6">
+                                <i class="fas fa-bolt"></i> เริ่มการวิเคราะห์ดิน
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Step 2: Loading State -->
+                    <div id="wizard-step-2" class="glass-panel text-center animate-fade-in" style="display: none; padding: 4rem 2rem;">
+                        <i class="fas fa-circle-notch fa-spin text-emerald" style="font-size: 3.5rem; margin-bottom: 1.5rem;"></i>
+                        <h3 class="text-emerald text-xl font-bold">กำลังประมวลผลวิเคราะห์ดิน...</h3>
+                        <p class="text-muted mt-2">โปรดรอสักครู่ ระบบกำลังเปรียบเทียบค่าดินกับเกณฑ์มาตรฐานและสร้างคำแนะนำที่ดีที่สุดสำหรับคุณ</p>
+                    </div>
+
+                    <!-- Step 3: Recommendations -->
+                    <div id="wizard-step-3" class="glass-panel animate-fade-in" style="display: none;">
+                        <div class="text-center mb-6">
+                            <div
+                                style="width: 64px; height: 64px; background: rgba(16, 185, 129, 0.15); border: 2px solid var(--primary-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.75rem auto; box-shadow: var(--shadow-emerald-glow);">
+                                <i class="fas fa-check-double text-emerald" style="font-size: 1.8rem;"></i>
+                            </div>
+                            <h3 class="text-emerald">ผลการวิเคราะห์เรียบร้อย</h3>
+                            <span class="text-muted" style="font-size: 0.85rem;">ประมวลผลเปรียบเทียบเกณฑ์มาตรฐาน</span>
+                        </div>
+
+                        <h4 class="mb-3 flex items-center gap-2"><i class="fas fa-lightbulb text-gradient"></i>
+                            ผลการประเมินสภาพดิน</h4>
+                        <div class="table-container desktop-only-table mb-6">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>ตัวแปรดิน</th>
+                                        <th>ค่ามาตรฐาน</th>
+                                        <th>ค่าที่วัดได้</th>
+                                        <th>ผลประเมิน</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analysis-result-table-body">
+                                    <!-- Dynamic Table -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Mobile Card View -->
+                        <div id="analysis-result-mobile-cards" class="mobile-only-cards mb-6">
+                            <!-- Dynamic Cards -->
+                        </div>
+                        <div id="analysis-charts-wrapper" class="responsive-chart-grid mb-6">
+                            <!-- Single analysis charts injected here -->
+                        </div>
+
+                        <div class="glass-card mb-4"
+                            style="background: rgba(2, 132, 199, 0.06); border-color: rgba(2, 132, 199, 0.25);">
+                            <h4 class="flex items-center gap-2" style="color: var(--secondary-color);"><i
+                                    class="fas fa-seedling"></i> พืชที่แนะนำให้เพาะปลูก</h4>
+                            <p id="recommended-crops" class="mt-2"
+                                style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">
+                                กำลังประมวลผล...</p>
+                        </div>
+
+                        <div class="glass-card mb-6"
+                            style="background: rgba(217, 119, 6, 0.06); border-color: rgba(217, 119, 6, 0.25);">
+                            <h4 class="flex items-center gap-2" style="color: var(--warning-color);"><i
+                                    class="fas fa-vial-circle-check"></i> แผนและสูตรปุ๋ยแนะนำ</h4>
+                            <p id="recommended-fertilizers" class="mt-2"
+                                style="font-size: 0.95rem; font-weight: 600; color: var(--text-primary);">
+                                กำลังประมวลผล...</p>
+                        </div>
+
+                        <!-- Wizard Navigation -->
+                        <div class="flex gap-3 mt-2 border-t" style="padding-top: 1.5rem; border-color: var(--border-color);">
+                            <button class="btn btn-outline" style="flex: 1;" onclick="goToWizardStep(1)">
+                                <i class="fas fa-arrow-left"></i> ย้อนกลับ
+                            </button>
+                            <button class="btn btn-emerald" style="flex: 1;" onclick="goToWizardStep(4)">
+                                ถัดไป: จัดการรายงาน <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Save & Export -->
+                    <div id="wizard-step-4" class="glass-panel animate-fade-in" style="display: none; padding-top: 2rem; padding-bottom: 2rem;">
+                        <div class="text-center mb-6">
+                            <h3 class="text-emerald mb-2">บันทึกและส่งออกรายงาน</h3>
+                            <p class="text-muted" style="font-size: 0.9rem;">เลือกการดำเนินการกับรายงานผลการวิเคราะห์ดินของคุณ</p>
+                        </div>
+
+                        <button class="btn btn-outline btn-block mb-4" onclick="saveRecord()" style="border-width: 2px;">
+                            <i class="fas fa-bookmark text-emerald"></i> บันทึกผลวิเคราะห์นี้เข้าประวัติ
+                        </button>
+
+                        <div class="flex gap-3 mb-6">
+                            <button class="btn" style="flex: 1; background: #0284c7; color: #ffffff;"
+                                onclick="exportAnalysisPDF('wizard-step-3', 'SmartSoil_Analysis_Report.pdf')">
+                                <i class="fas fa-file-pdf"></i> PDF
+                            </button>
+                            <button class="btn" style="flex: 1; background: #8b5cf6; color: #ffffff;"
+                                onclick="exportAnalysisImage('wizard-step-3', 'SmartSoil_Analysis_Report.png')">
+                                <i class="fas fa-image"></i> รูปภาพ (PNG)
+                            </button>
+                        </div>
+
+                        <div class="text-center border-t pt-4 mt-2" style="border-color: var(--border-color);">
+                            <button class="btn btn-link text-muted" onclick="goToWizardStep(3)">
+                                <i class="fas fa-arrow-left"></i> ย้อนกลับไปดูคำแนะนำ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History View -->
+            <div id="view-history" class="hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-gradient" style="font-size: 1.6rem;">ประวัติและการเปลี่ยนแปลงสภาพดิน</h2>
+                        <p class="text-muted" style="font-size: 0.9rem;">ติดตามแนวโน้มคุณภาพดินย้อนหลังของแปลงเกษตร</p>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h3 class="mb-4 flex items-center gap-2"><i class="fas fa-chart-area text-gradient"></i> กราฟแนวโน้มระดับค่าดิน</h3>
+                    <!-- Dynamic Charts Container (Responsive 2-Col Desktop / 1-Col Mobile) -->
+                    <div id="history-charts-wrapper" class="responsive-chart-grid">
+                        <!-- Injected via JS -->
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start;">
+                    <!-- History Table (Shrunk) -->
+                    <div class="glass-panel" style="flex: 1; min-width: 320px; margin-bottom: 0;">
+                        <h3 class="mb-4"><i class="fas fa-history text-muted"></i> ประวัติการบันทึกทั้งหมด</h3>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>วันที่วิเคราะห์</th>
+                                        <th>ชื่อแปลง</th>
+                                        <th style="text-align: right; min-width: 150px;">การจัดการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-table-body">
+                                    <!-- Dynamic Content -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- History Detail Modal -->
+    <div class="modal" id="modal-history-detail">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-file-alt text-emerald"></i> รายละเอียดผลวิเคราะห์ดิน</h2>
+                <button class="btn-close" onclick="closeModal('modal-history-detail')"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="history-detail-body" class="mt-4">
+                <!-- Injected via JS -->
+            </div>
+            <div class="mt-6 text-right border-t flex justify-end gap-2" style="padding-top: 1rem; border-color: var(--border-color);">
+                <button class="btn" style="background: #0284c7; color: #ffffff;" onclick="exportAnalysisPDF('history-detail-body', 'SmartSoil_History_Report.pdf')"><i class="fas fa-file-pdf"></i> PDF</button>
+                <button class="btn" style="background: #8b5cf6; color: #ffffff;" onclick="exportAnalysisImage('modal-history-detail .modal-content', 'SmartSoil_History_Report.png')"><i class="fas fa-image"></i> รูปภาพ</button>
+                <button class="btn btn-outline" onclick="closeModal('modal-history-detail')">ปิดหน้าต่าง</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Nav Bar -->
+    <div class="mobile-nav">
+        <a href="#" class="mobile-nav-item active" id="mobile-nav-analyze">
+            <i class="fas fa-vial"></i>
+            <span>วิเคราะห์</span>
+        </a>
+        <a href="#" class="mobile-nav-item" id="mobile-nav-history">
+            <i class="fas fa-chart-line"></i>
+            <span>ประวัติ</span>
+        </a>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/dashboard.js"></script>
+</body>
+
+</html>

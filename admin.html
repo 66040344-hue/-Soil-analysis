@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Soil - Admin Control Center</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+
+<body>
+
+    <div class="dashboard-layout">
+        <!-- Executive Sidebar -->
+        <div class="sidebar">
+            <div class="mb-8 flex items-center gap-3">
+                <div
+                    style="width: 44px; height: 44px; border-radius: 14px; background: var(--gradient-emerald); display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 1.4rem; box-shadow: var(--shadow-emerald-glow);">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+                <div>
+                    <h2 class="text-gradient" style="font-size: 1.35rem; line-height: 1; font-weight: 700;">Smart Soil
+                    </h2>
+                    <span class="badge badge-success" style="margin-top: 4px; font-size: 0.7rem;"><i
+                            class="fas fa-user-shield"></i> ADMIN PORTAL</span>
+                </div>
+            </div>
+
+            <nav class="flex-col" style="flex: 1;">
+                <a href="#" class="nav-link active" id="nav-dashboard">
+                    <i class="fas fa-chart-pie"></i> ภาพรวมระบบ (Dashboard)
+                </a>
+                <a href="#" class="nav-link" id="nav-users">
+                    <i class="fas fa-user-check"></i> อนุมัติ & จัดการเกษตรกร
+                </a>
+                <a href="#" class="nav-link" id="nav-fields-standards">
+                    <i class="fas fa-sliders"></i> จัดการตัวแปรและเกณฑ์มาตรฐาน
+                </a>
+            </nav>
+
+            <div class="mt-auto">
+                <div class="glass-card mb-3 flex items-center justify-between" style="padding: 0.75rem;">
+                    <span style="font-size: 0.85rem; font-weight: 500;"><i
+                            class="fas fa-circle-half-stroke text-emerald"></i> โหมดกลางคืน</span>
+                    <button class="theme-toggle-btn btn btn-outline"
+                        style="padding: 0.35rem 0.75rem; border-radius: var(--radius-full);" onclick="toggleTheme()">
+                        <i class="fas fa-moon theme-icon"></i>
+                    </button>
+                </div>
+
+                <div class="glass-card mb-4 flex items-center gap-3" style="padding: 0.85rem;">
+                    <div
+                        style="width: 38px; height: 38px; border-radius: 50%; background: var(--gradient-primary); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffffff;">
+                        A
+                    </div>
+                    <div style="overflow: hidden;">
+                        <div id="admin-name"
+                            style="font-weight: 600; font-size: 0.92rem; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">
+                            Admin User</div>
+                        <div class="text-muted" style="font-size: 0.78rem;">ผู้ดูแลระบบศูนย์กลาง</div>
+                    </div>
+                </div>
+                <button id="logout-btn" class="btn btn-outline btn-block"><i class="fas fa-sign-out-alt"></i>
+                    ออกจากระบบ</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+
+            <!-- Topbar Header -->
+            <div class="admin-topbar">
+                <div>
+                    <h2 style="font-weight: 700;">ระบบบริหารจัดการศูนย์กลาง</h2>
+                    <p class="text-muted" style="font-size: 0.88rem;">ควบคุมตัวแปรดิน กำหนดเกณฑ์มาตรฐาน
+                        และอนุมัติสมาชิกเกษตรกร</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="badge badge-success" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                        <i class="fas fa-circle-check"></i> System Online
+                    </span>
+                </div>
+            </div>
+
+            <!-- Dashboard View -->
+            <div id="view-dashboard" class="animate-fade-in">
+                <div class="grid grid-cols-4 gap-6 mb-8">
+                    <div class="glass-card">
+                        <div class="text-muted mb-2" style="font-size: 0.85rem;"><i
+                                class="fas fa-users text-gradient"></i> เกษตรกรทั้งหมด</div>
+                        <h1 class="text-gradient" id="stat-total-users">0</h1>
+                    </div>
+                    <div class="glass-card">
+                        <div class="text-muted mb-2" style="font-size: 0.85rem;"><i class="fas fa-clock"
+                                style="color: var(--warning-color);"></i> รอการอนุมัติ</div>
+                        <h1 id="stat-pending-users" style="color: var(--warning-color);">0</h1>
+                    </div>
+                    <div class="glass-card">
+                        <div class="text-muted mb-2" style="font-size: 0.85rem;"><i
+                                class="fas fa-file-waveform text-emerald"></i> บันทึกวิเคราะห์ดิน</div>
+                        <h1 class="text-emerald" id="stat-total-records">0</h1>
+                    </div>
+                    <div class="glass-card">
+                        <div class="text-muted mb-2" style="font-size: 0.85rem;"><i class="fas fa-sliders"
+                                style="color: var(--secondary-color);"></i> ตัวแปรเปิดใช้งาน</div>
+                        <h1 style="color: var(--secondary-color);" id="stat-total-fields">0</h1>
+                    </div>
+                </div>
+
+                <div class="glass-panel">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3><i class="fas fa-chart-line text-gradient"></i> แนวโน้มการประมวลผลวิเคราะห์ดินรายเดือน</h3>
+                        <span class="text-muted" style="font-size: 0.85rem;">อัปเดตเรียลไทม์</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="systemChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users View -->
+            <div id="view-users" class="hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2>อนุมัติและจัดการเกษตรกร</h2>
+                        <p class="text-muted" style="font-size: 0.9rem;">
+                            สมาชิกสมัครใหม่ต้องได้รับการอนุมัติจากผู้ดูแลระบบก่อนเข้าใช้งาน</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline" style="border-color: #16a34a; color: #16a34a;"
+                            onclick="exportUsersExcel()">
+                            <i class="fas fa-file-excel"></i> Excel
+                        </button>
+                        <button class="btn btn-outline" style="border-color: #0284c7; color: #0284c7;"
+                            onclick="exportUsersPDF()">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </button>
+                    </div>
+                </div>
+
+                <div class="glass-panel">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ชื่อ-นามสกุล</th>
+                                    <th>เบอร์โทรศัพท์</th>
+                                    <th>อีเมล</th>
+                                    <th>วันที่สมัคร</th>
+                                    <th>สถานะ</th>
+                                    <th>การจัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <!-- Dynamic Content -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unified Fields & Standards View -->
+            <div id="view-fields-standards" class="hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2>จัดการตัวแปรและเกณฑ์มาตรฐานวิเคราะห์ดิน</h2>
+                        <p class="text-muted" style="font-size: 0.9rem;">เพิ่มและกำหนดค่าสูงสุด ต่ำสุด ช่วงที่เหมาะสม
+                            พืชที่แนะนำ และสูตรปุ๋ยในที่เดียว</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-outline" style="border-color: #16a34a; color: #16a34a;"
+                            onclick="exportStandardsExcel()">
+                            <i class="fas fa-file-excel"></i> Excel
+                        </button>
+                        <button class="btn btn-outline" style="border-color: #0284c7; color: #0284c7;"
+                            onclick="exportStandardsPDF()">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </button>
+                        <button class="btn btn-emerald" onclick="showFieldStandardModal()"><i
+                                class="fas fa-plus-circle"></i> เพิ่มตัวแปรใหม่</button>
+                    </div>
+                </div>
+
+                <div class="glass-panel">
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ชื่อตัวแปรดิน</th>
+                                    <th>หน่วยวัด</th>
+                                    <th>เกณฑ์ปกติ (Min-Max)</th>
+                                    <th>ค่าที่เหมาะสม</th>
+                                    <th>พืชและปุ๋ยแนะนำ</th>
+                                    <th>การจัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fields-standards-table-body">
+                                <!-- Dynamic Content -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unified Field & Standard Modal -->
+            <div id="modal-field-standard" class="hidden"
+                style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15,23,42,0.6); backdrop-filter: blur(8px); z-index: 1000; display: none; align-items: center; justify-content: center;">
+                <div class="glass-panel animate-fade-in"
+                    style="width: 100%; max-width: 700px; background: var(--bg-card); max-height: 90vh; overflow-y: auto;">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-gradient" id="modal-fs-title"><i class="fas fa-sliders"></i>
+                            เพิ่มตัวแปรและเกณฑ์มาตรฐาน</h3>
+                        <button type="button" class="btn btn-outline"
+                            style="padding: 0.3rem 0.6rem; border: none; color: var(--text-muted);"
+                            onclick="closeModal('modal-field-standard')"><i class="fas fa-times"></i></button>
+                    </div>
+
+                    <form id="form-field-standard">
+                        <input type="hidden" id="fs-field-id">
+
+                        <div class="grid grid-cols-2 gap-4 mb-2">
+                            <div class="form-group">
+                                <label class="form-label">ชื่อตัวแปร (เช่น ค่า pH)</label>
+                                <input type="text" id="fs-name" class="form-control" placeholder="ระบุชื่อตัวแปร"
+                                    required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">หน่วยวัด (เช่น %, mg/kg)</label>
+                                <input type="text" id="fs-unit" class="form-control" placeholder="ปล่อยว่างได้หากไม่มี">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-4 mb-2">
+                            <div class="form-group">
+                                <label class="form-label">ค่าต่ำสุด (Min)</label>
+                                <input type="number" step="any" id="fs-min" class="form-control" placeholder="5.5"
+                                    required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">ค่าสูงสุด (Max)</label>
+                                <input type="number" step="any" id="fs-max" class="form-control" placeholder="7.5"
+                                    required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">ค่าที่เหมาะสมที่สุด</label>
+                                <input type="text" id="fs-ideal" class="form-control" placeholder="เช่น 6.0 - 7.0"
+                                    required>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mb-2">
+                            <div class="form-group">
+                                <label class="form-label">พืชที่แนะนำ</label>
+                                <input type="text" id="fs-crops" class="form-control" placeholder="เช่น ข้าว, ข้าวโพด"
+                                    required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">แผนและสูตรปุ๋ย</label>
+                                <input type="text" id="fs-fertilizers" class="form-control"
+                                    placeholder="เช่น สูตร 15-15-15" required>
+                            </div>
+                        </div>
+
+                        <div class="mb-4"
+                            style="border-top: 1px dashed var(--border-color); padding-top: 1rem; margin-top: 1rem;">
+                            <div class="flex justify-between items-center mb-3">
+                                <div>
+                                    <label class="form-label"
+                                        style="margin-bottom: 0; font-weight: 600;">คำแนะนำสำหรับค่าผิดปกติ
+                                        (Advices)</label>
+                                    <p class="text-muted" style="font-size: 0.78rem; margin: 0;">
+                                        กำหนดคำแนะนำตามช่วงค่าของดินเพื่อแจ้งเกษตรกร</p>
+                                </div>
+                                <button type="button" class="btn btn-outline"
+                                    style="padding: 0.25rem 0.6rem; font-size: 0.8rem; border-color: var(--primary-color); color: var(--primary-color);"
+                                    onclick="addAdviceRow()">
+                                    <i class="fas fa-plus"></i> เพิ่มเงื่อนไขคำแนะนำ
+                                </button>
+                            </div>
+                            <div id="fs-advices-container"
+                                style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 260px; overflow-y: auto; padding-right: 4px;">
+                                <!-- Dynamic Advice Rows -->
+                            </div>
+                        </div>
+
+                        <div class="flex gap-4 mt-6">
+                            <button type="button" class="btn btn-outline" style="flex: 1;"
+                                onclick="closeModal('modal-field-standard')">ยกเลิก</button>
+                            <button type="submit" class="btn btn-emerald" style="flex: 1;">บันทึกข้อมูล</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/admin.js"></script>
+</body>
+
+</html>
