@@ -4,13 +4,13 @@ const firebaseConfig = {
   projectId: "soil-analysis-eb7f5",
   storageBucket: "soil-analysis-eb7f5.firebasestorage.app",
   messagingSenderId: "931526508607",
-  appId: "1:931526508607:web:917902ba08e7f98337f88a",
-  measurementId: "G-C80DLMSVG3"
+  appId: "1:931526508607:web:b86f44f2ec3312c337f88a",
+  measurementId: "G-B4XMJ2X2JY"
 };
 
 // Initialize Firebase (using compat library for global scope access)
 if (!firebase.apps.length) {
-    firebase.initializeApp(firebaseConfig);
+  firebase.initializeApp(firebaseConfig);
 }
 
 // Get Firestore reference
