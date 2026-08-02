@@ -26,12 +26,12 @@
 
             <form id="login-form">
                 <div class="form-group">
-                    <label class="form-label">เบอร์โทรศัพท์</label>
+                    <label class="form-label">เบอร์โทรศัพท์ / Username</label>
                     <div style="position: relative;">
-                        <i class="fas fa-mobile-screen-button"
+                        <i class="fas fa-user"
                             style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--primary-color);"></i>
-                        <input type="tel" id="login-phone" class="form-control" style="padding-left: 2.6rem;"
-                            placeholder="08xxxxxxxx" required>
+                        <input type="text" id="login-phone" class="form-control" style="padding-left: 2.6rem;"
+                            placeholder="กรอกเบอร์โทรศัพท์ หรือ Username" required>
                     </div>
                 </div>
                 <div class="form-group">
@@ -110,7 +110,7 @@
             <p class="text-muted mb-6" style="font-size: 0.9rem; line-height: 1.6;">
                 ระบบได้รับการลงทะเบียนของคุณเรียบร้อยแล้ว<br>
                 ขณะนี้บัญชีของคุณกำลังรอการอนุมัติสิทธิ์จากผู้ดูแลระบบ (Admin)<br>
-                <small class="text-muted">(คุณสามารถใช้ปุ่ม Quick Login เข้า Admin เพื่ออนุมัติบัญชีได้)</small>
+                <small class="text-muted">ระบบจะแจ้งเตือนอัตโนมัติเมื่อได้รับการอนุมัติ</small>
             </p>
             <button id="logout-waiting-btn" class="btn btn-outline btn-block"><i class="fas fa-sign-out-alt"></i>
                 กลับหน้าเข้าสู่ระบบ</button>

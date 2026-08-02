@@ -1,27 +1,9 @@
-// Check auth with auto-fallback for direct file viewing
+// Check auth - require admin or superadmin role
 let currentUser = JSON.parse(localStorage.getItem('current_user'));
 
-if (!currentUser || currentUser.role !== 'admin') {
-    const DB_USERS = 'soil_app_users';
-    let users = JSON.parse(localStorage.getItem(DB_USERS)) || [];
-    let admin = users.find(u => u.role === 'admin');
-
-    if (!admin) {
-        admin = {
-            id: 'admin_1',
-            name: 'Admin User (ผู้ดูแลระบบ)',
-            phone: '0812345678',
-            email: 'admin@soil.com',
-            password: 'password123',
-            role: 'admin',
-            is_approved: true,
-            created_at: new Date().toISOString()
-        };
-        users.push(admin);
-        localStorage.setItem(DB_USERS, JSON.stringify(users));
-    }
-    currentUser = admin;
-    localStorage.setItem('current_user', JSON.stringify(admin));
+if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'superadmin')) {
+    // Not authorized - redirect to login
+    window.location.href = 'index.html';
 }
 
 if (document.getElementById('admin-name')) {
@@ -287,8 +269,10 @@ async function saveCropStandardsToFirebase() {
 }
 
 // Data Loaders (Local Cache syncs with Firebase)
-function getUsers() { return JSON.parse(localStorage.getItem(DB_USERS)) || []; }
-function saveUsers(users) { localStorage.setItem(DB_USERS, JSON.stringify(users)); }
+// NOTE: getUsers / saveUsers now work with Firestore (see renderUsersTable)
+// Local functions retained only for legacy code compatibility
+function getUsers() { return JSON.parse(localStorage.getItem('soil_app_users')) || []; }
+function saveUsers(users) { localStorage.setItem('soil_app_users', JSON.stringify(users)); }
 
 function getFields() { return JSON.parse(localStorage.getItem(DB_FIELDS)) || []; }
 function saveFields(fields) { 
@@ -428,56 +412,123 @@ function renderDashboard() {
     }
 }
 
-// Render Users Table
-function renderUsersTable() {
-    try {
-        const users = getUsers().filter(u => u.role === 'user');
-        const tbody = document.getElementById('users-table-body');
-        if (!tbody) return;
-        tbody.innerHTML = '';
+// ============================================================
+// Render Users Table (Firestore-based, cross-device)
+// ============================================================
+async function renderUsersTable() {
+    const tbody = document.getElementById('users-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted" style="padding: 2rem;"><i class="fas fa-spinner fa-spin"></i> กำลังโหลดข้อมูล...</td></tr>';
 
-        if (users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding: 2rem;">ยังไม่มีผู้ใช้งานลงทะเบียนในระบบ</td></tr>';
+    try {
+        const snapshot = await db.collection('users').orderBy('created_at', 'desc').get();
+
+        if (snapshot.empty) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted" style="padding: 2rem;">ยังไม่มีผู้ใช้งานลงทะเบียนในระบบ</td></tr>';
             return;
         }
 
-        users.forEach(user => {
+        tbody.innerHTML = '';
+        snapshot.forEach(doc => {
+            const user = { id: doc.id, ...doc.data() };
+            // Skip Super Admin from the list
+            if (user.role === 'superadmin') return;
+
             const tr = document.createElement('tr');
             const regDate = user.created_at ? new Date(user.created_at).toLocaleDateString('th-TH') : '-';
+
+            const roleBadge = user.role === 'admin'
+                ? '<span class="badge badge-success"><i class="fas fa-shield-halved"></i> Admin</span>'
+                : '<span class="badge" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;"><i class="fas fa-user"></i> เกษตรกร</span>';
 
             const statusBadge = user.is_approved
                 ? '<span class="badge badge-success"><i class="fas fa-check-circle"></i> อนุมัติแล้ว</span>'
                 : '<span class="badge badge-warning"><i class="fas fa-clock"></i> รอการอนุมัติ</span>';
 
-            const actionBtn = user.is_approved
-                ? `<button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-color: #e11d48; color: #e11d48;" onclick="toggleApproval('${user.id}')"><i class="fas fa-ban"></i> ยกเลิกสิทธิ์</button>`
-                : `<button class="btn btn-emerald" style="padding: 0.35rem 0.85rem; font-size: 0.8rem;" onclick="toggleApproval('${user.id}')"><i class="fas fa-check"></i> กดอนุมัติ</button>`;
+            const approveBtn = user.is_approved
+                ? `<button class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-color: #e11d48; color: #e11d48;" onclick="toggleApproval('${user.id}', false)"><i class="fas fa-ban"></i> ยกเลิกสิทธิ์</button>`
+                : `<button class="btn btn-emerald" style="padding: 0.35rem 0.85rem; font-size: 0.8rem;" onclick="toggleApproval('${user.id}', true)"><i class="fas fa-check"></i> อนุมัติ</button>`;
+
+            // Promote to Admin (Super Admin only)
+            const promoteBtn = (currentUser.role === 'superadmin' && user.role === 'user')
+                ? `<button class="btn btn-outline" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; border-color: #7c3aed; color: #7c3aed;" onclick="promoteToAdmin('${user.id}', '${user.name}')"><i class="fas fa-arrow-up"></i> เป็น Admin</button>`
+                : '';
+
+            // Delete (Super Admin can delete anyone except other superadmins; Admin cannot delete)
+            const deleteBtn = (currentUser.role === 'superadmin')
+                ? `<button class="btn btn-outline" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; border-color: #dc2626; color: #dc2626;" onclick="deleteUserFirestore('${user.id}', '${user.name}')"><i class="fas fa-trash"></i></button>`
+                : '';
 
             tr.innerHTML = `
-                <td style="font-weight: 600; color: #0f172a;">${user.name}</td>
+                <td style="font-weight: 600;">${user.name}</td>
                 <td>${user.phone}</td>
-                <td style="color: var(--text-secondary);">${user.email || '-'}</td>
-                <td style="color: var(--text-muted); font-size: 0.88rem;">${regDate}</td>
+                <td style="color: var(--text-secondary); font-size:0.87rem;">${user.email || '-'}</td>
+                <td style="font-size: 0.87rem;">${regDate}</td>
+                <td>${roleBadge}</td>
                 <td>${statusBadge}</td>
-                <td>${actionBtn}</td>
+                <td>
+                    <div class="flex gap-2" style="flex-wrap:wrap;">
+                        ${approveBtn}
+                        ${promoteBtn}
+                        ${deleteBtn}
+                    </div>
+                </td>
             `;
             tbody.appendChild(tr);
         });
     } catch (err) {
-        console.error('Error rendering users table:', err);
+        console.error('[Admin] Error rendering users table:', err);
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="color:#e11d48;padding:2rem;"><i class="fas fa-exclamation-triangle"></i> ไม่สามารถโหลดข้อมูลได้ กรุณาตรวจสอบการเชื่อมต่อ</td></tr>';
     }
 }
 
-// Toggle Approval
-window.toggleApproval = function (userId) {
-    const users = getUsers();
-    const userIndex = users.findIndex(u => u.id === userId);
-
-    if (userIndex !== -1) {
-        users[userIndex].is_approved = !users[userIndex].is_approved;
-        saveUsers(users);
+// Toggle Approval Status (Firestore)
+window.toggleApproval = async function (userId, approve) {
+    try {
+        await db.collection('users').doc(userId).update({ is_approved: approve });
         renderUsersTable();
         renderDashboard();
+    } catch (err) {
+        console.error('[Admin] toggleApproval error:', err);
+        alert('ไม่สามารถอัปเดตสถานะได้ กรุณาลองใหม่');
+    }
+};
+
+// Promote user to Admin (Super Admin only)
+window.promoteToAdmin = async function (userId, userName) {
+    if (currentUser.role !== 'superadmin') {
+        alert('เฉพาะ Super Admin เท่านั้นที่สามารถโปรโมทผู้ใช้ได้');
+        return;
+    }
+    if (!confirm(`ยืนยันการเลื่อนขั้น "${userName}" ให้เป็น Admin?`)) return;
+    try {
+        await db.collection('users').doc(userId).update({ role: 'admin', is_approved: true });
+        renderUsersTable();
+        alert(`"${userName}" ได้รับการเลื่อนขั้นเป็น Admin แล้ว`);
+    } catch (err) {
+        console.error('[Admin] promoteToAdmin error:', err);
+        alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
+    }
+};
+
+// Delete user (Super Admin only)
+window.deleteUserFirestore = async function (userId, userName) {
+    if (currentUser.role !== 'superadmin') {
+        alert('เฉพาะ Super Admin เท่านั้นที่สามารถลบผู้ใช้ได้');
+        return;
+    }
+    if (userId === 'superadmin_1') {
+        alert('ไม่สามารถลบ Super Admin ได้');
+        return;
+    }
+    if (!confirm(`ยืนยันการลบบัญชี "${userName}"? การกระทำนี้ไม่สามารถย้อนกลับได้`)) return;
+    try {
+        await db.collection('users').doc(userId).delete();
+        renderUsersTable();
+        renderDashboard();
+    } catch (err) {
+        console.error('[Admin] deleteUser error:', err);
+        alert('เกิดข้อผิดพลาดในการลบ กรุณาลองใหม่');
     }
 };
 
