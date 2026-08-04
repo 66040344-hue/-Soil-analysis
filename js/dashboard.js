@@ -246,6 +246,7 @@ function renderDynamicFields() {
     fields.forEach(field => {
         const div = document.createElement('div');
         div.className = 'form-group';
+        div.style.position = 'relative';
 
         let label = field.name;
         if (field.unit) label += ` (${field.unit})`;
@@ -253,13 +254,104 @@ function renderDynamicFields() {
         const std = standards.find(s => s.fieldId === field.id);
         const stdText = std ? `<span style="float:right; font-size: 0.8rem; color: var(--text-muted); font-weight: 400;"><i class="fas fa-info-circle"></i> มาตรฐาน: ${std.minVal} - ${std.maxVal} ${field.unit || ''}</span>` : '';
 
+        // Add validation attributes
+        let minAttr = '';
+        let maxAttr = '';
+        if (field.type === 'number') {
+            minAttr = 'min="0"';
+            if (field.name.toLowerCase().includes('ph')) {
+                maxAttr = 'max="14"';
+            }
+        }
+
         div.innerHTML = `
             <label class="form-label" style="display: block; width: 100%;">${label} ${stdText}</label>
-            <input type="${field.type}" id="field-${field.id}" data-id="${field.id}" data-name="${field.name}" class="form-control dynamic-input" required placeholder="ระบุ ${field.name}">
+            <input type="${field.type}" ${field.type === 'number' ? 'step="any"' : ''} ${minAttr} ${maxAttr} id="field-${field.id}" data-id="${field.id}" data-name="${field.name}" class="form-control dynamic-input" required placeholder="ระบุ ${field.name}" oninput="if(window.validateInput) window.validateInput(this, '${field.name}')">
+            <div id="error-${field.id}" style="color: var(--danger-color); font-size: 0.78rem; margin-top: 4px; display: none;"><i class="fas fa-exclamation-circle"></i> <span class="error-msg"></span></div>
         `;
         container.appendChild(div);
     });
 }
+
+// ================= SMART FORM UX (Auto-save & Validation) =================
+window.validateInput = function(inputEl, fieldName) {
+    const errorDiv = document.getElementById(`error-${inputEl.getAttribute('data-id')}`);
+    const errorMsg = errorDiv.querySelector('.error-msg');
+    const val = parseFloat(inputEl.value);
+    
+    let isError = false;
+    if (inputEl.type === 'number' && inputEl.value !== '') {
+        if (val < 0) {
+            isError = true;
+            errorMsg.textContent = 'ค่าต้องไม่ติดลบ';
+        } else if (fieldName.toLowerCase().includes('ph') && val > 14) {
+            isError = true;
+            errorMsg.textContent = 'ค่า pH ต้องไม่เกิน 14';
+        }
+    }
+    
+    if (isError) {
+        inputEl.style.borderColor = 'var(--danger-color)';
+        inputEl.style.backgroundColor = 'rgba(244, 63, 94, 0.05)';
+        errorDiv.style.display = 'block';
+        inputEl.setCustomValidity('Invalid value');
+    } else {
+        inputEl.style.borderColor = '';
+        inputEl.style.backgroundColor = '';
+        errorDiv.style.display = 'none';
+        inputEl.setCustomValidity('');
+    }
+    
+    if (window.saveFormDraft) window.saveFormDraft();
+};
+
+window.saveFormDraft = function() {
+    const draft = {
+        plotName: document.getElementById('plot-name')?.value || '',
+        cropType: document.getElementById('dashboard-crop-selector')?.value || '',
+        fields: {}
+    };
+    document.querySelectorAll('.dynamic-input').forEach(input => {
+        draft.fields[input.getAttribute('data-id')] = input.value;
+    });
+    localStorage.setItem('soil_app_form_draft', JSON.stringify(draft));
+};
+
+// Update Dashboard UI with latest configs
+function renderDashboard() {
+    renderDynamicFields();
+    if (document.getElementById('dashboard-crop-selector')) {
+        currentCropId = document.getElementById('dashboard-crop-selector').value || 'general';
+        loadDashboardCropStandards(currentCropId);
+    }
+    // Load Auto-save Draft after rendering fields
+    if (window.loadFormDraft) window.loadFormDraft();
+}
+
+window.loadFormDraft = function() {
+    try {
+        const draftJson = localStorage.getItem('soil_app_form_draft');
+        if (!draftJson) return;
+        const draft = JSON.parse(draftJson);
+        
+        if (draft.plotName && document.getElementById('plot-name')) {
+            document.getElementById('plot-name').value = draft.plotName;
+        }
+        if (draft.cropType && document.getElementById('dashboard-crop-selector')) {
+            document.getElementById('dashboard-crop-selector').value = draft.cropType;
+        }
+        document.querySelectorAll('.dynamic-input').forEach(input => {
+            const id = input.getAttribute('data-id');
+            if (draft.fields[id] !== undefined) {
+                input.value = draft.fields[id];
+                // Trigger validation visual update silently
+                if (window.validateInput) window.validateInput(input, input.getAttribute('data-name'));
+            }
+        });
+    } catch(e) { 
+        console.error('Error loading form draft', e); 
+    }
+};
 
 // Wizard Navigation Controller
 window.goToWizardStep = function (step) {
@@ -303,14 +395,12 @@ function generateFormulaResultHtml(formulaId, val, min = 0, max = 0) {
 
         // Evaluate the math string safely
         const result = new Function('return ' + parsedFormula)();
-        if (isNaN(result) || !isFinite(result)) return '';
+        if (isNaN(result) || !isFinite(result) || result <= 0) return '';
 
         // Format to max 2 decimal places
         const finalResult = Number.isInteger(result) ? result : parseFloat(result.toFixed(2));
 
-        return `<div style="margin-top: 8px; padding: 10px 15px; background: rgba(16, 185, 129, 0.1); border-left: 4px solid var(--primary-color); border-radius: 4px; color: var(--primary-color); font-weight: 600; font-size: 0.95rem;">
-            <i class="fas fa-calculator mr-2"></i> ปริมาณแนะนำ: <span style="font-size: 1.1rem;">${finalResult}</span>
-        </div>`;
+        return `<div style="font-size: 0.85rem; color: var(--primary-color); margin-bottom: 4px;"><i class="fas fa-box-open mr-1"></i> <strong>ปริมาณแนะนำ:</strong> ${found.name} ${finalResult} ${found.unit || ''}</div>`;
     } catch (e) {
         console.error('Error parsing formula:', found.expression, e);
         return '';
@@ -379,9 +469,9 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
                     if (std.crops) recommendedCropsList.push(std.crops);
                     if (std.fertilizers) recommendedFertilizersList.push(std.fertilizers);
 
-                    let finalAdviceText = adviceText;
+                    let formulaHtml = '';
                     if (matchedAdvice && matchedAdvice.formulaId) {
-                        finalAdviceText += generateFormulaResultHtml(matchedAdvice.formulaId, val, std.minVal, std.maxVal);
+                        formulaHtml = generateFormulaResultHtml(matchedAdvice.formulaId, val, std.minVal, std.maxVal);
                     }
 
                     advices.push({
@@ -394,12 +484,15 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
                         unit: std.unit || '',
                         status: status,
                         statusHtml: statusHtml,
-                        adviceText: finalAdviceText
+                        adviceText: adviceText,
+                        duration: matchedAdvice ? (matchedAdvice.improvementDuration || '') : '',
+                        forecast: matchedAdvice ? (matchedAdvice.forecastResult || '') : '',
+                        formulaResult: formulaHtml
                     });
                 } else {
-                    let finalAdviceText = adviceText;
+                    let formulaHtml = '';
                     if (matchedAdvice && matchedAdvice.formulaId) {
-                        finalAdviceText += generateFormulaResultHtml(matchedAdvice.formulaId, val, 0, 0);
+                        formulaHtml = generateFormulaResultHtml(matchedAdvice.formulaId, val, 0, 0);
                     }
 
                     advices.push({
@@ -412,7 +505,10 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
                         unit: '',
                         status: 'info',
                         statusHtml: `<span class="badge" style="background: rgba(2, 132, 199, 0.1); color: var(--secondary-color);"><i class="fas fa-info"></i> ข้อมูลทั่วไป</span>`,
-                        adviceText: finalAdviceText
+                        adviceText: adviceText,
+                        duration: matchedAdvice ? (matchedAdvice.improvementDuration || '') : '',
+                        forecast: matchedAdvice ? (matchedAdvice.forecastResult || '') : '',
+                        formulaResult: formulaHtml
                     });
                 }
             }
@@ -431,24 +527,25 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
             status: isOverallGood ? 'good' : 'needs_improvement'
         };
 
-        // Render Box 1: Analysis Results
+        // Render Box 1: Analysis Results (compact 3-col row)
         const boxResults = document.getElementById('box-analysis-results');
         if (boxResults) {
             boxResults.innerHTML = advices.map(a => `
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
-                    <span>${a.fieldName} <strong style="margin-left: 0.5rem; color: var(--text-primary); font-size: 1.05rem;">${a.val}</strong> <span class="text-muted" style="font-size: 0.85rem;">${a.unit}</span></span>
-                    <span style="min-width: 100px; text-align: right;">${a.statusHtml}</span>
+                <div class="result-row">
+                    <span class="result-label">${a.fieldName}</span>
+                    <strong class="result-val">${a.val}<span class="result-unit">${a.unit}</span></strong>
+                    <span class="result-badge">${a.statusHtml}</span>
                 </div>
             `).join('');
         }
 
-        // Render Box 2: Optimal Standards
+        // Render Box 2: Optimal Standards (compact 2-col row)
         const boxOptimal = document.getElementById('box-optimal-standards');
         if (boxOptimal) {
             boxOptimal.innerHTML = advices.map(a => `
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding: 0.75rem 0;">
-                    <span>${a.fieldName}</span>
-                    <span style="font-weight: 600; color: #0284c7;">${a.idealVal} <span class="text-muted" style="font-size: 0.85rem; font-weight: normal;">${a.unit}</span></span>
+                <div class="result-row">
+                    <span class="result-label">${a.fieldName}</span>
+                    <span class="result-std">${a.idealVal} <span class="result-unit">${a.unit}</span></span>
                 </div>
             `).join('');
         }
@@ -469,6 +566,25 @@ document.getElementById('form-analyze').addEventListener('submit', (e) => {
                     '</ol>';
             } else {
                 boxAdvices.innerHTML = '<div class="text-muted text-center" style="padding: 1rem;"><i class="fas fa-check-circle text-emerald"></i> ดินอยู่ในสภาพสมบูรณ์ ไม่จำเป็นต้องจัดการเพิ่มเติม</div>';
+            }
+        }
+
+        // Render Box 5: Forecast & Timeline
+        const boxForecast = document.getElementById('box-forecast');
+        if (boxForecast) {
+            const forecastAdvices = advices.filter(a => (a.duration && a.duration.trim() !== '') || (a.forecast && a.forecast.trim() !== '') || (a.formulaResult && a.formulaResult !== ''));
+            if (forecastAdvices.length > 0) {
+                boxForecast.innerHTML = forecastAdvices.map(a => `
+                    <div style="border-left: 3px solid var(--primary-color); padding: 0.6rem 0.8rem; margin-bottom: 0.75rem; background: rgba(16,185,129,0.04); border-radius: 0 6px 6px 0;">
+                        <div style="font-weight: 600; font-size: 0.88rem; color: var(--text-primary); margin-bottom: 4px;">${a.fieldName}</div>
+                        ${a.formulaResult ? a.formulaResult : ''}
+                        ${a.duration ? `<div style="font-size: 0.82rem; color: #b45309; margin-bottom: 2px;"><i class="fas fa-clock mr-1"></i> <strong>ระยะเวลาที่ใช้:</strong> ${a.duration}</div>` : ''}
+                        ${a.forecast ? `<div style="font-size: 0.82rem; color: var(--primary-color);"><i class="fas fa-chart-line mr-1"></i> <strong>ผลลัพธ์:</strong> ${a.forecast}</div>` : ''}
+                    </div>
+                `).join('');
+                boxForecast.parentElement.style.display = 'block'; // Show if has content
+            } else {
+                boxForecast.parentElement.style.display = 'none'; // Hide if empty
             }
         }
 
@@ -506,6 +622,7 @@ window.saveRecord = async function () {
         alert('บันทึกข้อมูลผลการวิเคราะห์ลงฐานข้อมูลเรียบร้อยแล้ว!');
         currentAnalysisResult = null;
         document.getElementById('form-analyze').reset();
+        localStorage.removeItem('soil_app_form_draft'); // Clear auto-save draft on success
 
         switchDashboardTab('history');
         goToWizardStep(1);

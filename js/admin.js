@@ -594,7 +594,7 @@ window.deleteFieldStandard = function (fieldId) {
 };
 
 // Dynamic Advice Rows
-window.addAdviceRow = function (min = '', max = '', text = '', formulaId = '') {
+window.addAdviceRow = function (min = '', max = '', text = '', formulaId = '', duration = '', forecast = '') {
     const container = document.getElementById('fs-advices-container');
     if (!container) return;
 
@@ -613,7 +613,7 @@ window.addAdviceRow = function (min = '', max = '', text = '', formulaId = '') {
         <button type="button" style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; transition: color 0.2s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#94a3b8'" onclick="this.parentElement.remove()" title="ลบเงื่อนไขนี้">
             <i class="fas fa-times" style="font-size: 0.95rem;"></i>
         </button>
-        <div class="grid grid-cols-2 gap-4 mb-3 pr-6">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.75rem; padding-right: 1.5rem;">
             <div>
                 <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">ตั้งแต่ค่า (Min)</label>
                 <input type="number" step="any" class="form-control adv-min-input" placeholder="เช่น 0" value="${min}" required style="padding: 0.5rem 0.75rem; font-size: 0.95rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
@@ -625,14 +625,23 @@ window.addAdviceRow = function (min = '', max = '', text = '', formulaId = '') {
         </div>
         <div class="mb-3">
             <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">ข้อความคำแนะนำ</label>
-            <textarea class="form-control adv-text-input" placeholder="เช่น ต้องใส่ปูนโดโลไมต์เพิ่มเติมบริเวณทรงพุ่ม" required style="padding: 0.6rem 0.75rem; font-size: 0.95rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; min-height: 80px; resize: vertical; width: 100%; line-height: 1.5;">${text}</textarea>
+            <textarea class="form-control adv-text-input" placeholder="เช่น ต้องใส่ปูนโดโลไมต์เพิ่มเติมบริเวณทรงพุ่ม" required style="padding: 0.6rem 0.75rem; font-size: 0.95rem; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; min-height: 60px; resize: vertical; width: 100%; line-height: 1.5;">${text}</textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 0.75rem;">
+            <div>
+                <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">ระยะเวลาดำเนินการ (Timeline)</label>
+                <input type="text" class="form-control adv-duration-input" placeholder="เช่น 14-30 วัน" value="${duration}" style="padding: 0.5rem 0.75rem; font-size: 0.95rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;">
+            </div>
+            <div>
+                <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">แนบสูตรคำนวณปริมาณ (ตัวเลือกเสริม)</label>
+                <select class="form-control adv-formula-select" style="padding: 0.5rem 0.75rem; font-size: 0.9rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
+                    ${formulaOptionsHtml}
+                </select>
+            </div>
         </div>
         <div>
-            <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;">แนบสูตรคำนวณปริมาณ (ตัวเลือกเสริม)</label>
-            <select class="form-control adv-formula-select" style="padding: 0.5rem 0.75rem; font-size: 0.9rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%;">
-                ${formulaOptionsHtml}
-            </select>
-            <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;"><i class="fas fa-info-circle mr-1"></i> ระบบจะนำสมการจากสูตรนี้มาคำนวณ และแสดงผลลัพธ์เป็นตัวเลขต่อท้ายคำแนะนำให้อัตโนมัติ</p>
+            <label style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px; display: block;"><i class="fas fa-chart-line text-emerald mr-1"></i> ผลลัพธ์ที่คาดการณ์ (Forecast)</label>
+            <input type="text" class="form-control adv-forecast-input" placeholder="เช่น ค่า pH จะเพิ่มขึ้นประมาณ 0.5 ระดับ" value="${forecast}" style="padding: 0.5rem 0.75rem; font-size: 0.95rem; background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.3); border-radius: 6px;">
         </div>
     `;
     container.appendChild(row);
@@ -645,7 +654,7 @@ window.renderAdviceRows = function (fieldId) {
     if (fieldId) {
         const advices = getAdvices().filter(a => a.fieldId === fieldId);
         advices.forEach(adv => {
-            window.addAdviceRow(adv.minVal, adv.maxVal, adv.adviceText, adv.formulaId || '');
+            window.addAdviceRow(adv.minVal, adv.maxVal, adv.adviceText, adv.formulaId || '', adv.improvementDuration || '', adv.forecastResult || '');
         });
     } else {
         // default empty row
@@ -768,6 +777,8 @@ if (formFieldStandard) {
             const advMin = parseFloat(row.querySelector('.adv-min-input').value);
             const advMax = parseFloat(row.querySelector('.adv-max-input').value);
             const advText = row.querySelector('.adv-text-input').value;
+            const advDuration = row.querySelector('.adv-duration-input')?.value || '';
+            const advForecast = row.querySelector('.adv-forecast-input')?.value || '';
 
             const advFormulaSelect = row.querySelector('.adv-formula-select');
             const advFormulaId = advFormulaSelect ? advFormulaSelect.value : '';
@@ -779,7 +790,9 @@ if (formFieldStandard) {
                     minVal: advMin,
                     maxVal: advMax,
                     adviceText: advText,
-                    formulaId: advFormulaId
+                    formulaId: advFormulaId,
+                    improvementDuration: advDuration,
+                    forecastResult: advForecast
                 });
             }
         });
@@ -995,7 +1008,10 @@ window.renderFormulasTable = function () {
         row.style.borderBottom = '1px solid #e2e8f0';
         row.innerHTML = `
             <td style="padding: 1rem; color: var(--text-color);"><code>${f.id}</code></td>
-            <td style="padding: 1rem; color: var(--text-color); font-weight: 500;">${f.name}</td>
+            <td style="padding: 1rem; color: var(--text-color); font-weight: 500;">
+                ${f.name}
+                ${f.unit ? `<br><span style="font-size: 0.8rem; color: #64748b;"><i class="fas fa-balance-scale"></i> ${f.unit}</span>` : ''}
+            </td>
             <td style="padding: 1rem; color: var(--primary-color);"><code>${f.expression}</code></td>
             <td style="padding: 1rem; text-align: center;">
                 <button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: #3b82f6; color: #3b82f6;" onclick="editFormula('${f.id}')"><i class="fas fa-edit"></i></button>
@@ -1018,6 +1034,7 @@ window.showFormulaModal = function (formulaId = null) {
             document.getElementById('formula-id').value = formula.id;
             document.getElementById('formula-id').readOnly = true;
             document.getElementById('formula-name').value = formula.name;
+            document.getElementById('formula-unit').value = formula.unit || '';
             document.getElementById('formula-expression').value = formula.expression;
             document.getElementById('modal-formula-title').innerHTML = '<i class="fas fa-edit"></i> แก้ไขสูตรคำนวณ';
         }
@@ -1027,10 +1044,30 @@ window.showFormulaModal = function (formulaId = null) {
     document.getElementById('modal-formula').classList.remove('hidden');
 };
 
+window.insertToFormula = function(text) {
+    const input = document.getElementById('formula-expression');
+    if (!input) return;
+    
+    // Simple insert at the end for now, or at cursor if supported
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    
+    if (start !== undefined && end !== undefined) {
+        const val = input.value;
+        input.value = val.substring(0, start) + text + val.substring(end);
+        input.focus();
+        input.selectionStart = input.selectionEnd = start + text.length;
+    } else {
+        input.value += text;
+        input.focus();
+    }
+};
+
 document.getElementById('form-formula')?.addEventListener('submit', function (e) {
     e.preventDefault();
     let id = document.getElementById('formula-id').value.trim();
     const name = document.getElementById('formula-name').value.trim();
+    const unit = document.getElementById('formula-unit').value.trim();
     const expression = document.getElementById('formula-expression').value.trim();
 
     if (!id) {
@@ -1041,9 +1078,9 @@ document.getElementById('form-formula')?.addEventListener('submit', function (e)
     const existingIndex = formulas.findIndex(f => f.id === id);
 
     if (existingIndex >= 0) {
-        formulas[existingIndex] = { id, name, expression };
+        formulas[existingIndex] = { id, name, unit, expression };
     } else {
-        formulas.push({ id, name, expression });
+        formulas.push({ id, name, unit, expression });
     }
 
     saveFormulas(formulas);
